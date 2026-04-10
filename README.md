@@ -46,7 +46,8 @@ It was engineered to solve issues with UIPI (User Interface Privilege Isolation)
 ### 2. Prepare Config & Folders
 If you clone a fresh repository, you need to manually scaffold the missing skeleton elements:
 - Create a file named **`config.yaml`** at the root of the project with your desired operational variables (Refer to `doc/USAGE.md`).
-- Create an empty folder named **`img/`**. This folder will be used by the Bot's Auto-Learner to ingest your cropped buttons.
+- Create an empty folder named **`img/`**.
+  - **What are the files in `img/`?**: Whenever you drop cropped images (`.png`) of buttons into this folder, they act as "Visual Templates". At startup, the Bot's Auto-Learner engine scans these images, extracts the text inside them via OCR, and memorizes those words directly into its active hunting dictionary (effectively merging them without needing to type them in `config.yaml`).
 
 ### 3. Build & Run
 First, compile the application into a standalone executable:
