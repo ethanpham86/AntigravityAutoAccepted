@@ -41,7 +41,7 @@ It was engineered to solve issues with UIPI (User Interface Privilege Isolation)
 ### 1. Prerequisites 
 - **Golang** (v1.22+)
 - **Tesseract OCR** (v5.0+ installed and added to `%PATH%`)
-  > Download from: [https://github.com/UB-Mannheim/tesseract/wiki](https://github.com/UB-Mannheim/tesseract/wiki)
+  > 💡 Tesseract OCR installer is bundled directly within this repository for offline setup. Run `dependencies/tesseract-ocr-w64-setup-5.5.0.20241111.exe` and complete the installation!
 
 ### 2. Prepare Config & Folders
 If you clone a fresh repository, you need to manually scaffold the missing skeleton elements:
