@@ -43,7 +43,12 @@ It was engineered to solve issues with UIPI (User Interface Privilege Isolation)
 - **Tesseract OCR** (v5.0+ installed and added to `%PATH%`)
   > Download from: [https://github.com/UB-Mannheim/tesseract/wiki](https://github.com/UB-Mannheim/tesseract/wiki)
 
-### 2. Build & Run
+### 2. Prepare Config & Folders
+If you clone a fresh repository, you need to manually scaffold the missing skeleton elements:
+- Create a file named **`config.yaml`** at the root of the project with your desired operational variables (Refer to `doc/USAGE.md`).
+- Create an empty folder named **`img/`**. This folder will be used by the Bot's Auto-Learner to ingest your cropped buttons.
+
+### 3. Build & Run
 First, compile the application into a standalone executable:
 ```bash
 go build -o bin/autoclick.exe ./cmd/main.go
@@ -53,7 +58,7 @@ Run the compiled binary (or use `go run`):
 ./bin/autoclick.exe
 ```
 
-### 3. Usage & Configurations
+### 4. Usage & Configurations
 Read the detailed [USAGE.md](doc/USAGE.md) for instructions on defining keywords in `config.yaml` and selecting screen regions.
 
 For the architectural design philosophy, reference [ARCHITECTURE.md](doc/ARCHITECTURE.md).
