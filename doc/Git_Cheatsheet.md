@@ -4,17 +4,32 @@ Cuốn cẩm nang này được thiết kế theo đúng quy trình **Bước-th
 
 ---
 
+## KHÚC 0: NHẬP MÔN CÀI ĐẶT (CHỈ LÀM 1 LẦN DƯY NHẤT LÚC ĐẦU) 🪪
+*(Để Git biết lệnh Commit của bạn là do ai gõ và ghi công trên Github)*
+
+```bash
+# Cấu hình danh tính (Tên và Email sẽ hiện trên trang Github)
+git config --global user.name "ethanpham86"
+git config --global user.email "email-cua-ban@gmail.com"
+```
+
+---
+
 ## KHÚC 1: KHỞI ĐỘNG VÀ BẮT ĐẦU DỰ ÁN 🌅
-*(Chỉ dùng khi chuẩn bị nhận 1 task mới hoặc khởi động dự án mới)*
+*(Chỉ dùng khi chuẩn bị nhận 1 task mới hoặc khởi tạo dự án mới)*
 
 **1. Nạp dự án có sẵn từ mạng về máy tính để làm (Clone)**
 ```bash
 git clone https://github.com/TênNick/TênDựÁn.git
 ```
 **2. Tạo dự án mới toanh từ số 0 (Nếu bạn tự viết Code)**
+*(Bước Đệm Rất Quan Trọng: Cần đăng nhập trình duyệt web Github.com -> Bấm dấu (+) góc phải -> Chọn "New Repository" -> Điền Tên Dự Án -> Bấm Create. Lúc đó Github mới tạo cho bạn cái Kho Server trống để nối tới)*
+
+Gõ tiếp trên máy bạn:
 ```bash
 git init
 git branch -M main
+# Nối sợi dây liên kết lên Kho Github trống rỗng vừa tạo ở trên
 git remote add origin https://github.com/TênNick/TênDựÁn.git
 ```
 **3. Kéo Code đồng bộ mới nhất (Đầu giờ sáng mở máy lên)**
@@ -145,4 +160,21 @@ git revert <Mã-Hash-Của-Đống-Commit-Lỗi>
 # Xoá khỏi sự kìm kẹp Tracking Git nhưng GIỮ LẠI cho Local máy tính
 git rm --cached ten-file-mat-khau-bank.json
 # Nhét nó vào file .gitignore liền trước khi Commit
+```
+
+---
+
+## KHÚC 7: ĐÓNG MỘC BẢN PHÁT HÀNH (GIT TAG & RELEASE) 🎯
+*(Bản Code của bạn đã quá tuyệt vời, đạt đến mốc Version v1.0, v2.5 và bạn muốn Đóng Đinh cái mốc Lịch Sử này thành mục Release trên Github)*
+
+**1. Gắn nhãn Version (Tag) cho bộ Code hiện tại**
+```bash
+# Tạo mốc v1.0 và mô tả nó
+git tag -a v1.0 -m "Sản phẩm v1.0 ra mắt thị trường chính thức"
+```
+
+**2. Đẩy nhãn này lên Github**
+```bash
+# Lưu ý: Lệnh 'git push main' bình thường KHÔNG kéo theo Tag. Phải gọi lệnh phụ riêng để đẩy Tag:
+git push origin v1.0
 ```
