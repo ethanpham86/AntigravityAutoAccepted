@@ -29,6 +29,7 @@ keywords:
   - "Allow Once"
   - "Run"
   - "Retry"
+  - "OK"
 ```
 
 ## 📸 Khoanh vùng quét (Region Selector)
