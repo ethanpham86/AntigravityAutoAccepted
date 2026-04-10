@@ -1,49 +1,51 @@
-// Package engine coordinates the capture → OCR → match → click loop.
 package engine
 
 import (
 	"context"
 	"fmt"
 	"image"
-	"log"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/ethanpham86/AutoClickAccepted/internal/capture"
 	"github.com/ethanpham86/AutoClickAccepted/internal/clicker"
+	"github.com/ethanpham86/AutoClickAccepted/internal/logger"
 	"github.com/ethanpham86/AutoClickAccepted/internal/ocr"
 )
 
-// Config holds engine configuration.
+const ScaleFactor = 3
+
 type Config struct {
 	Keywords            []string
 	ScanIntervalMs      int
 	ConfidenceThreshold int
+	DebugSaveCaptures   bool
+	DebugDir            string
+	DebugMode           bool
 }
 
-// Engine is the main auto-click coordinator.
 type Engine struct {
 	region image.Rectangle
 	config Config
 	stats  Stats
 }
 
-// Stats tracks runtime statistics.
 type Stats struct {
-	TotalScans   int
-	TotalClicks  int
-	TotalErrors  int
-	StartTime    time.Time
+	TotalScans  int
+	TotalClicks int
+	TotalErrors int
+	StartTime   time.Time
 }
 
-// New creates a new Engine.
 func New(region image.Rectangle, cfg Config) *Engine {
 	if cfg.ScanIntervalMs <= 0 {
 		cfg.ScanIntervalMs = 2000
 	}
 	if cfg.ConfidenceThreshold <= 0 {
-		cfg.ConfidenceThreshold = 60
+		cfg.ConfidenceThreshold = 30
 	}
 	return &Engine{
 		region: region,
@@ -52,33 +54,34 @@ func New(region image.Rectangle, cfg Config) *Engine {
 	}
 }
 
-// Run starts the main scan loop. Blocks until context is cancelled.
+func (e *Engine) Stats() Stats {
+	return e.stats
+}
+
 func (e *Engine) Run(ctx context.Context) error {
 	interval := time.Duration(e.config.ScanIntervalMs) * time.Millisecond
 
 	fmt.Println()
 	fmt.Println("╔══════════════════════════════════════════════════╗")
-	fmt.Println("║        AUTO-CLICK ENGINE STARTED                ║")
+	fmt.Println("║        AUTO-CLICK ENGINE STARTED                 ║")
 	fmt.Println("╠══════════════════════════════════════════════════╣")
 	fmt.Printf("║  Region : %dx%d at (%d,%d)%s║\n",
 		e.region.Dx(), e.region.Dy(), e.region.Min.X, e.region.Min.Y,
-		strings.Repeat(" ", max(1, 34-len(fmt.Sprintf("%dx%d at (%d,%d)", e.region.Dx(), e.region.Dy(), e.region.Min.X, e.region.Min.Y)))))
-	fmt.Printf("║  Keywords: %-37s║\n", truncate(strings.Join(e.config.Keywords, ", "), 37))
-	fmt.Printf("║  Interval: %-37s║\n", fmt.Sprintf("%dms", e.config.ScanIntervalMs))
-	fmt.Println("║  Press Ctrl+C to stop                           ║")
+		strings.Repeat(" ", max(1, 33-len(fmt.Sprintf("%dx%d at (%d,%d)", e.region.Dx(), e.region.Dy(), e.region.Min.X, e.region.Min.Y)))))
+	fmt.Printf("║  Keywords: %-36s║\n", truncate(strings.Join(e.config.Keywords, ", "), 36))
+	fmt.Printf("║  Interval: %-36s║\n", fmt.Sprintf("%dms", e.config.ScanIntervalMs))
+	fmt.Println("║  Press Ctrl+C to stop                            ║")
 	fmt.Println("╚══════════════════════════════════════════════════╝")
 	fmt.Println()
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	// Run first scan immediately
 	e.scanAndClick()
 
 	for {
 		select {
 		case <-ctx.Done():
-			e.printStats()
 			return ctx.Err()
 		case <-ticker.C:
 			e.scanAndClick()
@@ -86,69 +89,117 @@ func (e *Engine) Run(ctx context.Context) error {
 	}
 }
 
-// scanAndClick performs one capture → OCR → match → click cycle.
 func (e *Engine) scanAndClick() {
 	e.stats.TotalScans++
 
-	// 1. Capture screen region
-	imagePath, err := capture.CaptureToFile(e.region)
+	capturePath, err := capture.CaptureToFile(e.region)
 	if err != nil {
 		e.stats.TotalErrors++
-		log.Printf("[SCAN #%d] ✗ Capture failed: %v", e.stats.TotalScans, err)
+		logger.Error("[SCAN #%d] ✗ Capture failed: %v", e.stats.TotalScans, err)
 		return
 	}
-	// Important: clean up temp file to avoid file lock issues / clutter
-	defer os.Remove(imagePath)
+	defer os.Remove(capturePath)
 
-	// 2. Run OCR
-	matches, err := ocr.DetectText(imagePath)
+	if e.config.DebugSaveCaptures {
+		e.saveDebugCapture(capturePath)
+	}
+
+	matches, err := ocr.DetectText(capturePath)
 	if err != nil {
+		if strings.Contains(err.Error(), "0xc000013a") || err == context.Canceled {
+			return
+		}
 		e.stats.TotalErrors++
-		log.Printf("[SCAN #%d] ✗ OCR failed: %v", e.stats.TotalScans, err)
+		logger.Error("[SCAN #%d] ✗ OCR failed: %v", e.stats.TotalScans, err)
 		return
 	}
 
-	// 3. Find keyword matches (including multi-word)
+	if e.config.DebugMode {
+		var words []string
+		for _, m := range matches {
+			words = append(words, fmt.Sprintf("%s(%d%%)", m.Text, m.Confidence))
+		}
+		logger.Debug("[SCAN #%d] 🔍 Words: %s", e.stats.TotalScans, strings.Join(words, ", "))
+	}
+
 	found := ocr.FindMultiWordKeywords(matches, e.config.Keywords, e.config.ConfidenceThreshold)
 	if len(found) == 0 {
-		log.Printf("[SCAN #%d] — No keywords found (%d words detected)", e.stats.TotalScans, len(matches))
+		logger.Debug("[SCAN #%d] — No keywords found (%d words detected)", e.stats.TotalScans, len(matches))
 		return
 	}
 
-	// 4. Click on the first match
-	hit := found[0]
-	centerX := (hit.Bounds.Min.X + hit.Bounds.Max.X) / 2
-	centerY := (hit.Bounds.Min.Y + hit.Bounds.Max.Y) / 2
-
-	// Convert from image-relative to absolute screen coordinates
-	absX, absY := clicker.RegionToScreen(e.region, centerX, centerY)
-
-	log.Printf("[SCAN #%d] ✓ Found \"%s\" (conf=%d) → clicking at (%d, %d)",
-		e.stats.TotalScans, hit.Text, hit.Confidence, absX, absY)
-
-	if err := clicker.ClickAt(absX, absY); err != nil {
-		e.stats.TotalErrors++
-		log.Printf("[SCAN #%d] ✗ Click failed: %v", e.stats.TotalScans, err)
-		return
+	getPriority := func(kw string) int {
+		for i, k := range e.config.Keywords {
+			if strings.EqualFold(k, kw) {
+				return i
+			}
+		}
+		return 999
 	}
 
-	e.stats.TotalClicks++
+	sort.Slice(found, func(i, j int) bool {
+		p1, p2 := getPriority(found[i].Keyword), getPriority(found[j].Keyword)
+		if p1 != p2 {
+			return p1 < p2
+		}
+		return found[i].Confidence > found[j].Confidence
+	})
 
-	// Small delay after click to let UI respond
-	time.Sleep(500 * time.Millisecond)
+	type coord struct{ x, y int }
+	var clickedSpots []coord
+
+	for _, hit := range found {
+		centerX := ((hit.Bounds.Min.X + hit.Bounds.Max.X) / 2) / ScaleFactor
+		centerY := ((hit.Bounds.Min.Y + hit.Bounds.Max.Y) / 2) / ScaleFactor
+
+		absX, absY := clicker.RegionToScreen(e.region, centerX, centerY)
+
+		duplicate := false
+		for _, c := range clickedSpots {
+			dx, dy := absX-c.x, absY-c.y
+			if dx*dx+dy*dy < 400 {
+				duplicate = true
+				break
+			}
+		}
+		if duplicate {
+			continue
+		}
+		clickedSpots = append(clickedSpots, coord{x: absX, y: absY})
+
+		logger.Info("[SCAN #%d] ✓ Found \"%s\" (conf=%d) → clicking at (%d, %d)",
+			e.stats.TotalScans, hit.Keyword, hit.Confidence, absX, absY)
+
+		if err := clicker.ClickAt(absX, absY); err != nil {
+			e.stats.TotalErrors++
+			logger.Error("[SCAN #%d] ✗ Click failed: %v", e.stats.TotalScans, err)
+			continue
+		}
+
+		e.stats.TotalClicks++
+		time.Sleep(500 * time.Millisecond)
+	}
 }
 
-func (e *Engine) printStats() {
-	elapsed := time.Since(e.stats.StartTime)
-	fmt.Println()
-	fmt.Println("╔══════════════════════════════════════════════════╗")
-	fmt.Println("║        SESSION SUMMARY                          ║")
-	fmt.Println("╠══════════════════════════════════════════════════╣")
-	fmt.Printf("║  Duration : %-36s║\n", elapsed.Truncate(time.Second).String())
-	fmt.Printf("║  Scans    : %-36d║\n", e.stats.TotalScans)
-	fmt.Printf("║  Clicks   : %-36d║\n", e.stats.TotalClicks)
-	fmt.Printf("║  Errors   : %-36d║\n", e.stats.TotalErrors)
-	fmt.Println("╚══════════════════════════════════════════════════╝")
+func (e *Engine) saveDebugCapture(srcPath string) {
+	destPath := filepath.Join(e.config.DebugDir, fmt.Sprintf("scan_%d.png", e.stats.TotalScans))
+	data, err := os.ReadFile(srcPath)
+	if err == nil {
+		os.WriteFile(destPath, data, 0644)
+	}
+}
+
+func SaveCaptureOnce(region image.Rectangle, destPath string) error {
+	srcPath, err := capture.CaptureToFile(region)
+	if err != nil {
+		return err
+	}
+	defer os.Remove(srcPath)
+	data, err := os.ReadFile(srcPath)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(destPath, data, 0644)
 }
 
 func truncate(s string, maxLen int) string {

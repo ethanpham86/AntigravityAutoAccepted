@@ -116,13 +116,32 @@ func CaptureRegion(rect image.Rectangle) (*image.RGBA, error) {
 		return nil, fmt.Errorf("GetDIBits failed: %v", err)
 	}
 
-	// Convert BGRA to RGBA
-	img := image.NewRGBA(image.Rect(0, 0, width, height))
-	for i := 0; i < len(buf); i += 4 {
-		img.Pix[i+0] = buf[i+2] // R <- B
-		img.Pix[i+1] = buf[i+1] // G
-		img.Pix[i+2] = buf[i+0] // B <- R
-		img.Pix[i+3] = 255      // A
+	// ScaleFactor to improve Tesseract OCR accuracy on small UI texts
+	const scale = 3
+	newWidth := width * scale
+	newHeight := height * scale
+
+	img := image.NewRGBA(image.Rect(0, 0, newWidth, newHeight))
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			srcOffset := (y*width + x) * 4
+			b := buf[srcOffset+0]
+			g := buf[srcOffset+1]
+			r := buf[srcOffset+2]
+			
+			// Nearest neighbor 3x upscale
+			for dy := 0; dy < scale; dy++ {
+				for dx := 0; dx < scale; dx++ {
+					newY := y*scale + dy
+					newX := x*scale + dx
+					dstOffset := (newY*newWidth + newX) * 4
+					img.Pix[dstOffset+0] = r
+					img.Pix[dstOffset+1] = g
+					img.Pix[dstOffset+2] = b
+					img.Pix[dstOffset+3] = 255
+				}
+			}
+		}
 	}
 
 	return img, nil

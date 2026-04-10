@@ -17,6 +17,16 @@ description: Absolute strict 6-Layer ELK AI workflow.
 3. **POST-FLIGHT LOGGING:** At task end, POST full summary context.
 4. **SECURITY:** Mask sensitive keys (no real passwords).
 
+> [!CAUTION]
+> **MANDATORY RICH DESCRIPTION RULE:**
+> Các field `solution`, `root_cause_analysis`, `error_fixes` **PHẢI chứa mô tả kỹ thuật chi tiết** (3-5 câu trở lên), giải thích rõ:
+> - **Nguyên nhân gốc (Root Cause):** Tại sao lỗi xảy ra?
+> - **Phân tích kỹ thuật:** Dữ liệu/logic nào sai? (ví dụ: "Tesseract trả conf dạng float 96.33 nhưng code dùng Atoi chỉ parse int → 100% từ bị skip")
+> - **Giải pháp chi tiết:** Sửa cụ thể gì, đổi API nào, thêm logic gì?
+> - **Impact:** Fix này ảnh hưởng module nào, có side effect không?
+>
+> **TUYỆT ĐỐI CẤM** ghi mô tả ngắn 1 dòng dạng "Fixed the bug" hoặc "Changed X to Y". Vi phạm = hợp đồng bị phá vỡ.
+
 ## 2. STANDARD JSON SCHEMA (Mandatory)
 ```json
 {
@@ -27,10 +37,12 @@ description: Absolute strict 6-Layer ELK AI workflow.
   "question_keywords": ["keys", "tags"],
   "category": "bug-fix|feature|migration|config",
   "tags": ["go", "elk"],
-  "solution": "Action taken/Result",
-  "solution_code": "Code chunk or N/A",
-  "errors_encountered": "Errors/Logs or None",
-  "error_fixes": "Fix strategy or N/A",
+  "root_cause_analysis": "Chi tiết phân tích nguyên nhân gốc rễ: dữ liệu sai gì, logic nào hỏng, environment nào gây ra. Viết ≥3 câu.",
+  "solution": "Hành động cụ thể đã thực hiện: thay đổi API nào, thêm logic gì, tại sao chọn cách này. Viết ≥3 câu.",
+  "solution_code": "Code snippet minh hoạ hoặc N/A",
+  "errors_encountered": "Nội dung lỗi/log gốc copy nguyên bản, hoặc None",
+  "error_fixes": "Chiến lược sửa lỗi chi tiết: bước 1 → bước 2 → kết quả. Viết ≥2 câu.",
+  "impact_scope": "Danh sách module/file bị ảnh hưởng và side effect tiềm ẩn",
   "files_modified": ["None"],
   "status": "pending|resolved",
   "created_at": "ISO Time",

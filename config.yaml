@@ -1,4 +1,5 @@
 # Target keywords to detect and click (case-insensitive)
+# These are merged with auto-learned keywords from img/ folder at startup.
 keywords:
   - "Allow Once"
   - "ACCEPTED"
@@ -6,11 +7,17 @@ keywords:
   - "Retry"
   - "Allow"
   - "Accept"
+  - "Accept all"
   - "OK"
   - "Yes"
+  - "Run"
 
 # Scan interval in milliseconds
-scan_interval_ms: 2000
+scan_interval_ms: 5000
 
-# Minimum OCR confidence (0-100) to consider a match valid
-confidence_threshold: 60
+# Minimum OCR confidence (0-100) to consider a match valid.
+# Lower = catch more (may include noise). 10 is aggressive for dark UI.
+confidence_threshold: 10
+
+# Log configuration (debug, info, error)
+log_level: "debug"
