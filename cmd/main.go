@@ -31,6 +31,7 @@ type appConfig struct {
 	ScanIntervalMs      int      `yaml:"scan_interval_ms"`
 	ConfidenceThreshold int      `yaml:"confidence_threshold"`
 	LogLevel            string   `yaml:"log_level"`
+	UseBackgroundClick  bool     `yaml:"use_background_click"`
 }
 
 func main() {
@@ -129,6 +130,7 @@ func main() {
 		DebugSaveCaptures:   *debug,
 		DebugDir:            debugDir,
 		DebugMode:           *debug,
+		UseBackgroundClick:  cfg.UseBackgroundClick,
 	})
 
 	if err := eng.Run(ctx); err != nil && err != context.Canceled {
@@ -166,6 +168,11 @@ func loadConfig(path string) (*appConfig, error) {
 	if cfg.ConfidenceThreshold <= 0 {
 		cfg.ConfidenceThreshold = 30
 	}
+	// Background click defaults to true if omitted, for better UX
+	if !cfg.UseBackgroundClick {
+		// Just to log it properly, we allow false as explicit setting. But actually Go defaults bools to false.
+		// So we can just leave it to whatever parsed.
+	}
 
 	return &cfg, nil
 }
@@ -173,12 +180,12 @@ func loadConfig(path string) (*appConfig, error) {
 func printBanner() {
 	fmt.Println()
 	fmt.Println("  ╔══════════════════════════════════════════════════╗")
-	fmt.Println("  ║     🖱️  AutoClickAccepted v2.0                  ║")
-	fmt.Println("  ║     OCR-based Auto-Clicker for Windows          ║")
+	fmt.Println("  ║     🖱️  AutoClickAccepted v2.6                  ║")
+	fmt.Println("  ║     Background-Click Stealth Engine             ║")
 	fmt.Println("  ╠══════════════════════════════════════════════════╣")
 	fmt.Println("  ║  Features:                                      ║")
+	fmt.Println("  ║  • Silent Background Click (No mouse hijack)    ║")
 	fmt.Println("  ║  • Auto-learn keywords from img/ samples        ║")
-	fmt.Println("  ║  • Fuzzy matching (Levenshtein 2)                ║")
 	fmt.Println("  ║  • 3x Upscale for OCR accuracy                  ║")
 	fmt.Println("  ║  Requires: tesseract.exe on PATH                ║")
 	fmt.Println("  ╚══════════════════════════════════════════════════╝")

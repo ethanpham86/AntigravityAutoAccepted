@@ -16,3 +16,6 @@ confidence_threshold: 40
 
 # Log configuration (debug, info, error)
 log_level: "info"
+
+# Background stealth click (True = Không cướp chuột vật lý)
+use_background_click: true

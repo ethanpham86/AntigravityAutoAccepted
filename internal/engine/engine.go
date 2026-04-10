@@ -25,6 +25,7 @@ type Config struct {
 	DebugSaveCaptures   bool
 	DebugDir            string
 	DebugMode           bool
+	UseBackgroundClick  bool
 }
 
 type Engine struct {
@@ -167,10 +168,10 @@ func (e *Engine) scanAndClick() {
 		}
 		clickedSpots = append(clickedSpots, coord{x: absX, y: absY})
 
-		logger.Info("[SCAN #%d] ✓ Found \"%s\" (conf=%d) → clicking at (%d, %d)",
-			e.stats.TotalScans, hit.Keyword, hit.Confidence, absX, absY)
+		logger.Info("[SCAN #%d] ✓ Found \"%s\" (conf=%d) → clicking at (%d, %d) [Background=%v]",
+			e.stats.TotalScans, hit.Keyword, hit.Confidence, absX, absY, e.config.UseBackgroundClick)
 
-		if err := clicker.ClickAt(absX, absY); err != nil {
+		if err := clicker.ClickAt(absX, absY, e.config.UseBackgroundClick); err != nil {
 			e.stats.TotalErrors++
 			logger.Error("[SCAN #%d] ✗ Click failed: %v", e.stats.TotalScans, err)
 			continue
