@@ -31,3 +31,7 @@ autoclick.log
 # OS-specific
 .DS_Store
 Thumbs.db
+
+# Private AI Skills
+SKILL.MD
+SkillGolang-ethanPham.md
