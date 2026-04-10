@@ -1,0 +1,16 @@
+# Target keywords to detect and click (case-insensitive)
+keywords:
+  - "Allow Once"
+  - "ACCEPTED"
+  - "RUN"
+  - "Retry"
+  - "Allow"
+  - "Accept"
+  - "OK"
+  - "Yes"
+
+# Scan interval in milliseconds
+scan_interval_ms: 2000
+
+# Minimum OCR confidence (0-100) to consider a match valid
+confidence_threshold: 60
