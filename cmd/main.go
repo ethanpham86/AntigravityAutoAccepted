@@ -64,9 +64,12 @@ func main() {
 	}
 
 	// ===== LEARNER: Auto-learn keywords from img/ folder =====
-	learnedWords, err := learner.LearnFromImages(*imgDir)
+	learnedWords, templates, err := learner.LearnFromImages(*imgDir)
 	if err != nil {
 		logger.Error("⚠ Learner warning: %v", err)
+	}
+	if len(templates) > 0 {
+		logger.Info("  🖼️  Loaded %d exact image templates from %s/.", len(templates), *imgDir)
 	}
 	if len(learnedWords) > 0 {
 		logger.Info("  📚 Learned %d words from %s/:", len(learnedWords), *imgDir)
@@ -125,6 +128,7 @@ func main() {
 	// Initialize and run the engine
 	eng := engine.New(region, engine.Config{
 		Keywords:            cfg.Keywords,
+		Templates:           templates,
 		ScanIntervalMs:      cfg.ScanIntervalMs,
 		ConfidenceThreshold: cfg.ConfidenceThreshold,
 		DebugSaveCaptures:   *debug,
@@ -180,14 +184,14 @@ func loadConfig(path string) (*appConfig, error) {
 func printBanner() {
 	fmt.Println()
 	fmt.Println("  ╔══════════════════════════════════════════════════╗")
-	fmt.Println("  ║     🖱️  AutoClickAccepted v2.6                  ║")
-	fmt.Println("  ║     Background-Click Stealth Engine             ║")
+	fmt.Println("  ║     🖱️  AutoClickAccepted v3.1.1 Hybrid          ║")
+	fmt.Println("  ║     Background-Click Stealth Engine              ║")
 	fmt.Println("  ╠══════════════════════════════════════════════════╣")
-	fmt.Println("  ║  Features:                                      ║")
-	fmt.Println("  ║  • Silent Background Click (No mouse hijack)    ║")
-	fmt.Println("  ║  • Auto-learn keywords from img/ samples        ║")
-	fmt.Println("  ║  • 3x Upscale for OCR accuracy                  ║")
-	fmt.Println("  ║  Requires: tesseract.exe on PATH                ║")
+	fmt.Println("  ║  Features:                                       ║")
+	fmt.Println("  ║  • Silent Background Click                       ║")
+	fmt.Println("  ║  • Exact Pixel Template Match & OCR Fallback     ║")
+	fmt.Println("  ║  • Auto-learn templates from img/ folder         ║")
+	fmt.Println("  ║  Requires: tesseract.exe on PATH                 ║")
 	fmt.Println("  ╚══════════════════════════════════════════════════╝")
 	fmt.Println()
 }

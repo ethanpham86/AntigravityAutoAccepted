@@ -49,8 +49,9 @@ type bitmapInfoHeader struct {
 	BiClrImportant  uint32
 }
 
-// CaptureRegion captures a screen rectangle and returns it as an image.RGBA.
-func CaptureRegion(rect image.Rectangle) (*image.RGBA, error) {
+// CaptureRegion captures a screen rectangle and returns it as an image.RGBA
+// upscaled by the given scale factor. Passing scale=1 returns exact 1:1 size.
+func CaptureRegion(rect image.Rectangle, scale int) (*image.RGBA, error) {
 	width := rect.Dx()
 	height := rect.Dy()
 	if width <= 0 || height <= 0 {
@@ -116,8 +117,10 @@ func CaptureRegion(rect image.Rectangle) (*image.RGBA, error) {
 		return nil, fmt.Errorf("GetDIBits failed: %v", err)
 	}
 
-	// ScaleFactor to improve Tesseract OCR accuracy on small UI texts
-	const scale = 3
+	// ScaleFactor to improve Tesseract OCR accuracy on small UI texts, or scale=1 for exact pixel matching
+	if scale < 1 {
+		scale = 1
+	}
 	newWidth := width * scale
 	newHeight := height * scale
 
@@ -149,8 +152,8 @@ func CaptureRegion(rect image.Rectangle) (*image.RGBA, error) {
 
 // CaptureToFile captures a screen region and saves it as PNG to a temp file.
 // Returns the file path.
-func CaptureToFile(rect image.Rectangle) (string, error) {
-	img, err := CaptureRegion(rect)
+func CaptureToFile(rect image.Rectangle, scale int) (string, error) {
+	img, err := CaptureRegion(rect, scale)
 	if err != nil {
 		return "", fmt.Errorf("capture failed: %w", err)
 	}

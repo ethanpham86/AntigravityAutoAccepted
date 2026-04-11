@@ -29,8 +29,9 @@ Loop Timer quản lý toàn bộ nhịp điệu Quét (Scan) và Nhấn (Click).
 - Gửi các gói toạ độ tuyệt đối (Absolute Screen Coords) xuống tầng Syscall. Xử lý triệt để false-positive qua thuật toán Levenshtein Distance & Word Boundary.
 
 ### 5. `internal/clicker` (Syscall Injector)
-Giao tiếp tầng thấp với Hệ điều hành Windows `SetCursorPos` và `SendInput`.
-Mô phỏng MOUSEEVENTF_LEFTDOWN | MOUSEEVENTF_LEFTUP 1 cách trung thực nhất. Vượt 100% UIPI Restriction của Windows nếu User chạy bằng đặc quyền Admin.
+Giao tiếp tầng thấp với Hệ điều hành Windows ở 2 chế độ:
+- Chế độ Mặc định (Stealth/Background Click): Dùng `WindowFromPoint` để lấy `HWND` ẩn đằng sau toạ độ OCR. Tiếp theo gọi `ScreenToClient` để đổi toạ độ và bơm thông điệp `PostMessageW` (`WM_LBUTTONDOWN`) thẳng vào ứng dụng. Tool không bao giờ đụng đến con trỏ chuột vật lý của User.
+- Chế độ Cổ điển (Fallback): Sử dụng `SetCursorPos` và `SendInput` nếu ứng dụng chặn Message giả. Vượt 100% UIPI Restriction của Windows nếu User chạy bằng đặc quyền Admin.
 
 ### 6. `internal/logger` (Observability)
 Mô hình `io.MultiWriter` xuất đồng thời lên:
@@ -46,7 +47,10 @@ graph TD
     C --> D[Identify Words + Confidence]
     D --> E[Engine: Exact / Fuzzy Match]
     E --> F[Engine: Sweep Dedup 20px]
-    F --> G[Syscall: SendInput (Click)]
-    G --> H[Wait 500ms Delay]
-    H --> F
+    F --> G{Background Click?}
+    G -- Yes --> H[PostMessageW]
+    G -- No --> I[SendInput]
+    H --> J[Wait 500ms Delay]
+    I --> J
+    J --> F
 ```

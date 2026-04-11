@@ -23,6 +23,9 @@ confidence_threshold: 40
 # Mức độ in Log: debug, info, error
 log_level: "info"
 
+# Background stealth click (True = Không cướp chuột vật lý, dùng PostMessage)
+use_background_click: true
+
 # Từ khoá Nút Bấm ưu tiên từ trên xuống dưới. Nút nào ưu tiên phải thả lên TOP.
 keywords:
   - "ACCEPTED"

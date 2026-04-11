@@ -13,22 +13,24 @@ import (
 	_ "image/jpeg"
 
 	"github.com/ethanpham86/AutoClickAccepted/internal/logger"
+	"github.com/ethanpham86/AutoClickAccepted/internal/matcher"
 	"github.com/ethanpham86/AutoClickAccepted/internal/ocr"
 )
 
 // LearnFromImages scans the imgDir for image files (png, jpg, jpeg, bmp),
 // runs Tesseract OCR on each (optionally upscaled), and returns all unique
-// detected words that can serve as auto-click keywords.
-func LearnFromImages(imgDir string) ([]string, error) {
+// detected words that can serve as auto-click keywords, alongside exactly matched templates.
+func LearnFromImages(imgDir string) ([]string, []matcher.Template, error) {
 	entries, err := os.ReadDir(imgDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil // img/ folder doesn't exist, nothing to learn
+			return nil, nil, nil // img/ folder doesn't exist, nothing to learn
 		}
-		return nil, fmt.Errorf("read img dir: %w", err)
+		return nil, nil, fmt.Errorf("read img dir: %w", err)
 	}
 
 	wordSet := make(map[string]bool)
+	var templates []matcher.Template
 	imageExtensions := map[string]bool{
 		".png": true, ".jpg": true, ".jpeg": true, ".bmp": true,
 	}
@@ -43,6 +45,17 @@ func LearnFromImages(imgDir string) ([]string, error) {
 		}
 
 		imgPath := filepath.Join(imgDir, entry.Name())
+
+		// Extract true 1:1 scale template for exact matching
+		if f, err := os.Open(imgPath); err == nil {
+			if srcImg, _, err := image.Decode(f); err == nil {
+				templates = append(templates, matcher.Template{
+					Name:  entry.Name(),
+					Image: srcImg,
+				})
+			}
+			f.Close()
+		}
 
 		// Upscale the image before OCR for better accuracy
 		scaledPath, err := upscaleImage(imgPath)
@@ -95,7 +108,7 @@ func LearnFromImages(imgDir string) ([]string, error) {
 	for w := range wordSet {
 		words = append(words, w)
 	}
-	return words, nil
+	return words, templates, nil
 }
 
 // MergeKeywords merges learned keywords with existing config keywords.

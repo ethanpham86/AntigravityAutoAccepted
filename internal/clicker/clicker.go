@@ -19,8 +19,8 @@ var (
 	procGetSystemMetrics = user32.NewProc("GetSystemMetrics")
 
 	// PostMessage APIs
-	procWindowFromPoint = user32.NewProc("WindowFromPoint")
-	procScreenToClient  = user32.NewProc("ScreenToClient")
+	procWindowFromPhysicalPoint = user32.NewProc("WindowFromPhysicalPoint")
+	procScreenToClient          = user32.NewProc("ScreenToClient")
 	procPostMessageW    = user32.NewProc("PostMessageW")
 )
 
@@ -63,6 +63,7 @@ func ClickAt(x, y int, background bool) error {
 		if err == nil {
 			return nil
 		}
+		fmt.Printf("⚠ BackgroundClick failed (%v) - Falling back to physical click!\n", err)
 		// If background click fails, fallback to physical click
 	}
 	return physicalClickAt(x, y)
@@ -73,9 +74,9 @@ func backgroundClickAt(x, y int) error {
 	
 	// Pass POINT struct by value (packed into 64-bit uint)
 	pt64 := *(*uint64)(unsafe.Pointer(&pt))
-	hwnd, _, _ := procWindowFromPoint.Call(uintptr(pt64))
+	hwnd, _, _ := procWindowFromPhysicalPoint.Call(uintptr(pt64))
 	if hwnd == 0 {
-		return fmt.Errorf("no window found at (%d, %d)", x, y)
+		return fmt.Errorf("WindowFromPhysicalPoint failed at (%d, %d)", x, y)
 	}
 
 	// Clone point to convert to client coordinates

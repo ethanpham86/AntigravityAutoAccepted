@@ -13,6 +13,7 @@ import (
 	"github.com/ethanpham86/AutoClickAccepted/internal/capture"
 	"github.com/ethanpham86/AutoClickAccepted/internal/clicker"
 	"github.com/ethanpham86/AutoClickAccepted/internal/logger"
+	"github.com/ethanpham86/AutoClickAccepted/internal/matcher"
 	"github.com/ethanpham86/AutoClickAccepted/internal/ocr"
 )
 
@@ -20,6 +21,7 @@ const ScaleFactor = 3
 
 type Config struct {
 	Keywords            []string
+	Templates           []matcher.Template
 	ScanIntervalMs      int
 	ConfidenceThreshold int
 	DebugSaveCaptures   bool
@@ -93,19 +95,89 @@ func (e *Engine) Run(ctx context.Context) error {
 func (e *Engine) scanAndClick() {
 	e.stats.TotalScans++
 
-	capturePath, err := capture.CaptureToFile(e.region)
+	// Capture 1:1 image for exact matching
+	capturePathRaw, err := capture.CaptureToFile(e.region, 1)
 	if err != nil {
 		e.stats.TotalErrors++
-		logger.Error("[SCAN #%d] ✗ Capture failed: %v", e.stats.TotalScans, err)
+		logger.Error("[SCAN #%d] ✗ Raw Capture failed: %v", e.stats.TotalScans, err)
 		return
 	}
-	defer os.Remove(capturePath)
+	defer os.Remove(capturePathRaw)
 
 	if e.config.DebugSaveCaptures {
-		e.saveDebugCapture(capturePath)
+		e.saveDebugCapture(capturePathRaw, "_1x")
 	}
 
-	matches, err := ocr.DetectText(capturePath)
+	// 1. FAST IMAGE TEMPLATE MATCHING
+	if len(e.config.Templates) > 0 {
+		f, err := os.Open(capturePathRaw)
+		if err == nil {
+			capImg, _, err := image.Decode(f)
+			f.Close()
+			if err == nil {
+				// Require 85% exact pixel similarity for click execution
+				fastMatches, bestMissName, highestConf := matcher.MatchSingle(capImg, e.config.Templates, 0.85)
+
+				if len(fastMatches) == 0 && highestConf >= 0.60 {
+					logger.Info("[SCAN #%d] 💡 Almost Matched \"%s\" (Similarity: %.1f%%, Needs: 85%%)", e.stats.TotalScans, bestMissName, highestConf*100)
+				}
+
+				if len(fastMatches) > 0 {
+					var clickedSpots []struct{ x, y int }
+
+					for _, tm := range fastMatches {
+						centerX := (tm.Bounds.Min.X + tm.Bounds.Max.X) / 2
+						centerY := (tm.Bounds.Min.Y + tm.Bounds.Max.Y) / 2
+
+						absX, absY := clicker.RegionToScreen(e.region, centerX, centerY)
+
+						duplicate := false
+						for _, c := range clickedSpots {
+							dx, dy := absX-c.x, absY-c.y
+							if dx*dx+dy*dy < 400 {
+								duplicate = true
+								break
+							}
+						}
+						if duplicate {
+							continue
+						}
+						clickedSpots = append(clickedSpots, struct{ x, y int }{absX, absY})
+
+						logger.Info("[SCAN #%d] 🌟 EXACT IMAGE MATCH \"%s\" (conf=%.2f) → clicking at (%d, %d)",
+							e.stats.TotalScans, tm.TemplateName, tm.Confidence, absX, absY)
+
+						if err := clicker.ClickAt(absX, absY, e.config.UseBackgroundClick); err != nil {
+							e.stats.TotalErrors++
+							logger.Error("[SCAN #%d] ✗ Click failed: %v", e.stats.TotalScans, err)
+							continue
+						}
+						e.stats.TotalClicks++
+						time.Sleep(500 * time.Millisecond)
+					}
+					// If visual match worked, skip expensive OCR completely.
+					if len(clickedSpots) > 0 {
+						return
+					}
+				}
+			}
+		}
+	}
+
+	// 2. OCR FALLBACK MATCHING (Requires 3x upscaled image)
+	ocrCapturePath, err := capture.CaptureToFile(e.region, 3)
+	if err != nil {
+		e.stats.TotalErrors++
+		logger.Error("[SCAN #%d] ✗ OCR Capture failed: %v", e.stats.TotalScans, err)
+		return
+	}
+	defer os.Remove(ocrCapturePath)
+
+	if e.config.DebugSaveCaptures {
+		e.saveDebugCapture(ocrCapturePath, "_3x")
+	}
+
+	matches, err := ocr.DetectText(ocrCapturePath)
 	if err != nil {
 		if strings.Contains(err.Error(), "0xc000013a") || err == context.Canceled {
 			return
@@ -182,8 +254,8 @@ func (e *Engine) scanAndClick() {
 	}
 }
 
-func (e *Engine) saveDebugCapture(srcPath string) {
-	destPath := filepath.Join(e.config.DebugDir, fmt.Sprintf("scan_%d.png", e.stats.TotalScans))
+func (e *Engine) saveDebugCapture(srcPath string, suffix string) {
+	destPath := filepath.Join(e.config.DebugDir, fmt.Sprintf("scan_%d%s.png", e.stats.TotalScans, suffix))
 	data, err := os.ReadFile(srcPath)
 	if err == nil {
 		os.WriteFile(destPath, data, 0644)
@@ -191,7 +263,7 @@ func (e *Engine) saveDebugCapture(srcPath string) {
 }
 
 func SaveCaptureOnce(region image.Rectangle, destPath string) error {
-	srcPath, err := capture.CaptureToFile(region)
+	srcPath, err := capture.CaptureToFile(region, 1)
 	if err != nil {
 		return err
 	}
