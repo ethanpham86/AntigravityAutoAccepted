@@ -4,6 +4,7 @@ package hotkey
 
 import (
 	"fmt"
+	"runtime"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -50,6 +51,12 @@ type msg struct {
 // The channel is closed when the function returns.
 func Listen(ch chan<- Action) error {
 	defer close(ch)
+
+	// CRITICAL: RegisterHotKey binds to the calling thread's message queue.
+	// We must lock this goroutine to a single OS thread so GetMessageW
+	// reads from the same queue where the hotkeys were registered.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 
 	ret, _, err := procRegisterHotKey.Call(0, idTogglePause, 0, vkF6)
 	if ret == 0 {
