@@ -19,7 +19,7 @@ import (
 )
 
 const ScaleFactor = 3
-const maxClicksPerScan = 3  // Strict limit: max 3 clicks per scan to prevent spam
+const maxClicksPerScan = 10 // Strict limit: max 10 clicks per scan to prevent spam
 const dedupRadiusSq = 90000 // 300px radius squared — prevent clicking same button region
 
 type Config struct {
@@ -200,8 +200,8 @@ func (e *Engine) scanAndClick() {
 			capImg, _, err := image.Decode(f)
 			f.Close()
 			if err == nil {
-				// Require 85% exact pixel similarity for click execution
-				fastMatches, bestMissName, highestConf := matcher.MatchSingle(capImg, e.config.Templates, 0.85)
+				// Require 92% exact pixel similarity for click execution to avoid false positives
+				fastMatches, bestMissName, highestConf := matcher.MatchSingle(capImg, e.config.Templates, 0.92)
 
 				// Hard cap: only process top N matches to prevent spam clicking
 				if len(fastMatches) > maxClicksPerScan {
@@ -210,7 +210,7 @@ func (e *Engine) scanAndClick() {
 				}
 
 				if len(fastMatches) == 0 && highestConf >= 0.60 {
-					logger.Info("[SCAN #%d] ~~ Almost Matched \"%s\" (%.1f%%, Needs: 85%%)", e.stats.TotalScans, bestMissName, highestConf*100)
+					logger.Info("[SCAN #%d] ~~ Almost Matched \"%s\" (%.1f%%, Needs: 92%%)", e.stats.TotalScans, bestMissName, highestConf*100)
 				}
 
 				if len(fastMatches) > 0 {
