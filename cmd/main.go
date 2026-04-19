@@ -42,6 +42,7 @@ type appConfig struct {
 	MaxClicksPerScan    int      `yaml:"max_clicks_per_scan"`
 	DedupRadiusPx       int      `yaml:"dedup_radius_px"`
 	TemplateThreshold   float64  `yaml:"template_threshold"`
+	ClickDelayMs        int      `yaml:"click_delay_ms"`
 }
 
 func main() {
@@ -191,6 +192,7 @@ func main() {
 		MaxClicksPerScan:    cfg.MaxClicksPerScan,
 		DedupRadiusPx:       cfg.DedupRadiusPx,
 		TemplateThreshold:   cfg.TemplateThreshold,
+		ClickDelayMs:        cfg.ClickDelayMs,
 	})
 
 	// ===== GLOBAL HOTKEY LISTENER =====
@@ -267,6 +269,9 @@ func loadConfig(path string) (*appConfig, error) {
 	}
 	if cfg.TemplateThreshold <= 0.0 {
 		cfg.TemplateThreshold = 0.92
+	}
+	if cfg.ClickDelayMs <= 0 {
+		cfg.ClickDelayMs = 300
 	}
 
 	return &cfg, nil

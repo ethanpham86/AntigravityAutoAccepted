@@ -33,6 +33,7 @@ type Config struct {
 	MaxClicksPerScan    int
 	DedupRadiusPx       int
 	TemplateThreshold   float64
+	ClickDelayMs        int
 }
 
 type Engine struct {
@@ -246,7 +247,7 @@ func (e *Engine) scanAndClick() {
 							continue
 						}
 						e.recordClick(tm.TemplateName)
-						time.Sleep(300 * time.Millisecond)
+						time.Sleep(time.Duration(e.config.ClickDelayMs) * time.Millisecond)
 
 						if len(clickedSpots) >= e.config.MaxClicksPerScan {
 							break
@@ -353,7 +354,7 @@ func (e *Engine) scanAndClick() {
 		}
 
 		e.recordClick(hit.Keyword)
-		time.Sleep(300 * time.Millisecond)
+		time.Sleep(time.Duration(e.config.ClickDelayMs) * time.Millisecond)
 
 		if len(clickedSpots) >= e.config.MaxClicksPerScan {
 			break
