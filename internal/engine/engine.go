@@ -219,6 +219,12 @@ func (e *Engine) scanAndClick() {
 					var clickedSpots []struct{ x, y int }
 
 					for _, tm := range fastMatches {
+						// Check pause mid-click — F6 stops clicks immediately
+						if e.IsPaused() {
+							logger.Debug("[SCAN #%d] Template click loop interrupted by PAUSE", e.stats.TotalScans)
+							break
+						}
+
 						centerX := (tm.Bounds.Min.X + tm.Bounds.Max.X) / 2
 						centerY := (tm.Bounds.Min.Y + tm.Bounds.Max.Y) / 2
 
@@ -325,6 +331,12 @@ func (e *Engine) scanAndClick() {
 	var clickedSpots []coord
 
 	for _, hit := range found {
+		// Check pause mid-click — F6 stops clicks immediately
+		if e.IsPaused() {
+			logger.Debug("[SCAN #%d] Click loop interrupted by PAUSE", e.stats.TotalScans)
+			break
+		}
+
 		centerX := ((hit.Bounds.Min.X + hit.Bounds.Max.X) / 2) / ScaleFactor
 		centerY := ((hit.Bounds.Min.Y + hit.Bounds.Max.Y) / 2) / ScaleFactor
 

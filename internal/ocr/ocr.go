@@ -151,7 +151,7 @@ func FindKeywords(matches []TextMatch, keywords []string, confidenceThreshold in
 			// 3. Fuzzy match (Levenshtein) for single-word keywords
 			// Short words (≤4 chars): max distance 1
 			// Long words (≥5 chars): max distance 2
-			if !strings.Contains(kwLower, " ") && len(textCleaned) >= 3 {
+			if !strings.Contains(kwLower, " ") && len(textCleaned) >= 2 {
 				lenDiff := len(textCleaned) - len(kwLower)
 				if lenDiff < 0 {
 					lenDiff = -lenDiff
