@@ -85,7 +85,7 @@ func (e *Engine) Pause() {
 	defer e.mu.Unlock()
 	if !e.paused {
 		e.paused = true
-		logger.Info("🔴 PAUSED — Nhấn F6 để tiếp tục")
+		logger.Info(">>> PAUSED -- Press F6 to resume")
 	}
 }
 
@@ -95,7 +95,7 @@ func (e *Engine) Resume() {
 	defer e.mu.Unlock()
 	if e.paused {
 		e.paused = false
-		logger.Info("🟢 RESUMED — Bot đang quét lại")
+		logger.Info(">>> RESUMED -- Scanning")
 	}
 }
 
@@ -105,9 +105,9 @@ func (e *Engine) TogglePause() {
 	defer e.mu.Unlock()
 	e.paused = !e.paused
 	if e.paused {
-		logger.Info("🔴 PAUSED — Nhấn F6 để tiếp tục")
+		logger.Info(">>> PAUSED -- Press F6 to resume")
 	} else {
-		logger.Info("🟢 RESUMED — Bot đang quét lại")
+		logger.Info(">>> RESUMED -- Scanning")
 	}
 }
 
@@ -132,19 +132,19 @@ func (e *Engine) Run(ctx context.Context) error {
 	}
 
 	fmt.Println()
-	fmt.Println("╔══════════════════════════════════════════════════╗")
-	fmt.Println("║        AUTO-CLICK ENGINE STARTED                 ║")
-	fmt.Println("╠══════════════════════════════════════════════════╣")
-	fmt.Printf("║  Region : %dx%d at (%d,%d)%s║\n",
+	fmt.Println("+----------------------------------------------------+")
+	fmt.Println("|        AUTO-CLICK ENGINE STARTED                   |")
+	fmt.Println("+----------------------------------------------------+")
+	fmt.Printf("|  Region : %dx%d at (%d,%d)%s|\n",
 		e.region.Dx(), e.region.Dy(), e.region.Min.X, e.region.Min.Y,
-		strings.Repeat(" ", max(1, 33-len(fmt.Sprintf("%dx%d at (%d,%d)", e.region.Dx(), e.region.Dy(), e.region.Min.X, e.region.Min.Y)))))
-	fmt.Printf("║  Keywords: %-36s║\n", truncate(strings.Join(e.config.Keywords, ", "), 36))
-	fmt.Printf("║  Interval: %-36s║\n", fmt.Sprintf("%dms", e.config.ScanIntervalMs))
-	fmt.Printf("║  Click   : %-36s║\n", bgLabel)
-	fmt.Printf("║  OCR     : %-36s║\n", ocrLabel)
-	fmt.Println("╠══════════════════════════════════════════════════╣")
-	fmt.Println("║  F6 = Pause/Resume  |  F7 = Stop  |  Ctrl+C     ║")
-	fmt.Println("╚══════════════════════════════════════════════════╝")
+		strings.Repeat(" ", max(1, 35-len(fmt.Sprintf("%dx%d at (%d,%d)", e.region.Dx(), e.region.Dy(), e.region.Min.X, e.region.Min.Y)))))
+	fmt.Printf("|  Keywords: %-38s|\n", truncate(strings.Join(e.config.Keywords, ", "), 38))
+	fmt.Printf("|  Interval: %-38s|\n", fmt.Sprintf("%dms", e.config.ScanIntervalMs))
+	fmt.Printf("|  Click   : %-38s|\n", bgLabel)
+	fmt.Printf("|  OCR     : %-38s|\n", ocrLabel)
+	fmt.Println("+----------------------------------------------------+")
+	fmt.Println("|  F6 = Pause/Resume  |  F7 = Stop  |  Ctrl+C        |")
+	fmt.Println("+----------------------------------------------------+")
 	fmt.Println()
 
 	ticker := time.NewTicker(interval)
@@ -179,7 +179,7 @@ func (e *Engine) scanAndClick() {
 	capturePathRaw, err := capture.CaptureToFile(e.region, 1)
 	if err != nil {
 		e.stats.TotalErrors++
-		logger.Error("[SCAN #%d] ✗ Raw Capture failed: %v", e.stats.TotalScans, err)
+		logger.Error("[SCAN #%d] Capture failed: %v", e.stats.TotalScans, err)
 		return
 	}
 	defer os.Remove(capturePathRaw)
@@ -205,12 +205,12 @@ func (e *Engine) scanAndClick() {
 
 				// Hard cap: only process top N matches to prevent spam clicking
 				if len(fastMatches) > maxClicksPerScan {
-					logger.Info("[SCAN #%d] ⚡ Capped %d template matches → %d", e.stats.TotalScans, len(fastMatches), maxClicksPerScan)
+					logger.Info("[SCAN #%d] Capped %d template matches to %d", e.stats.TotalScans, len(fastMatches), maxClicksPerScan)
 					fastMatches = fastMatches[:maxClicksPerScan]
 				}
 
 				if len(fastMatches) == 0 && highestConf >= 0.60 {
-					logger.Info("[SCAN #%d] 💡 Almost Matched \"%s\" (Similarity: %.1f%%, Needs: 85%%)", e.stats.TotalScans, bestMissName, highestConf*100)
+					logger.Info("[SCAN #%d] ~~ Almost Matched \"%s\" (%.1f%%, Needs: 85%%)", e.stats.TotalScans, bestMissName, highestConf*100)
 				}
 
 				if len(fastMatches) > 0 {
@@ -240,7 +240,7 @@ func (e *Engine) scanAndClick() {
 
 						if err := clicker.ClickAt(absX, absY, e.config.UseBackgroundClick); err != nil {
 							e.stats.TotalErrors++
-							logger.Error("[SCAN #%d] ✗ Click failed: %v", e.stats.TotalScans, err)
+							logger.Error("[SCAN #%d] Click failed: %v", e.stats.TotalScans, err)
 							continue
 						}
 						e.recordClick(tm.TemplateName)
@@ -268,7 +268,7 @@ func (e *Engine) scanAndClick() {
 	ocrCapturePath, err := capture.CaptureToFile(e.region, 3)
 	if err != nil {
 		e.stats.TotalErrors++
-		logger.Error("[SCAN #%d] ✗ OCR Capture failed: %v", e.stats.TotalScans, err)
+		logger.Error("[SCAN #%d] OCR Capture failed: %v", e.stats.TotalScans, err)
 		return
 	}
 	defer os.Remove(ocrCapturePath)
@@ -283,7 +283,7 @@ func (e *Engine) scanAndClick() {
 			return
 		}
 		e.stats.TotalErrors++
-		logger.Error("[SCAN #%d] ✗ OCR failed: %v", e.stats.TotalScans, err)
+		logger.Error("[SCAN #%d] OCR failed: %v", e.stats.TotalScans, err)
 		return
 	}
 
@@ -292,7 +292,7 @@ func (e *Engine) scanAndClick() {
 		for _, m := range matches {
 			words = append(words, fmt.Sprintf("%s(%d%%)", m.Text, m.Confidence))
 		}
-		logger.Debug("[SCAN #%d] 🔍 Words: %s", e.stats.TotalScans, strings.Join(words, ", "))
+		logger.Debug("[SCAN #%d] Words: %s", e.stats.TotalScans, strings.Join(words, ", "))
 	}
 
 	found := ocr.FindMultiWordKeywords(matches, e.config.Keywords, e.config.ConfidenceThreshold)

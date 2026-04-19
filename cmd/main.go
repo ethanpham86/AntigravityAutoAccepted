@@ -45,6 +45,9 @@ func main() {
 	// Ensure we have a visible console window even if built with -H windowsgui
 	ensureConsole()
 
+	// Set console to UTF-8 so log text renders correctly
+	setConsoleUTF8()
+
 	// Set DPI awareness so screen coordinates are accurate on high-DPI displays
 	setDPIAware()
 
@@ -83,28 +86,28 @@ func main() {
 	// Override interval if flag is passed
 	if *intervalOpt > 0 {
 		cfg.ScanIntervalMs = *intervalOpt
-		logger.Info("⏱ Overriding scan interval: %d ms", cfg.ScanIntervalMs)
+		logger.Info("[CONFIG] Overriding scan interval: %d ms", cfg.ScanIntervalMs)
 	}
 
 	// ===== CHECK TESSERACT AVAILABILITY =====
 	ocrAvailable := ocr.IsAvailable()
 	if ocrAvailable {
-		logger.Info("✅ Tesseract OCR: Installed — OCR fallback enabled")
+		logger.Info("[OK] Tesseract OCR: Installed -- OCR fallback enabled")
 	} else {
-		logger.Info("⚠  Tesseract OCR: NOT FOUND — Running template-matching only")
-		logger.Info("💡 Install Tesseract from dependencies/ folder to enable OCR fallback")
+		logger.Info("[WARN] Tesseract OCR: NOT FOUND -- Running template-matching only")
+		logger.Info("[TIP] Install Tesseract from dependencies/ folder to enable OCR fallback")
 	}
 
 	// ===== LEARNER: Auto-learn keywords from img/ folder =====
 	learnedWords, templates, err := learner.LearnFromImages(resolvedImgDir)
 	if err != nil {
-		logger.Error("⚠ Learner warning: %v", err)
+		logger.Error("[LEARN] Warning: %v", err)
 	}
 	if len(templates) > 0 {
-		logger.Info("  🖼️  Loaded %d exact image templates from %s/.", len(templates), *imgDir)
+		logger.Info("[LEARN] Loaded %d image templates from %s/", len(templates), *imgDir)
 	}
 	if len(learnedWords) > 0 {
-		logger.Info("  📚 Learned %d words from %s/:", len(learnedWords), *imgDir)
+		logger.Info("[LEARN] Learned %d words from %s/:", len(learnedWords), *imgDir)
 		for _, w := range learnedWords {
 			logger.Info("     - %s", w)
 		}
@@ -112,9 +115,9 @@ func main() {
 		cfg.Keywords = learner.MergeKeywords(cfg.Keywords, learnedWords)
 	}
 
-	logger.Info("🎯 Listening for keywords: %v", cfg.Keywords)
+	logger.Info("[KEYWORDS] Listening for: %v", cfg.Keywords)
 	if *debug {
-		logger.Info("🛠  Debug Mode: ON (Captures will be saved to debug/)")
+		logger.Info("[DEBUG] Debug Mode: ON (Captures saved to debug/)")
 	}
 
 	// ===== REGION SELECTION =====
@@ -126,7 +129,7 @@ func main() {
 		if err != nil {
 			logger.Fatal("Invalid scan_region in config: %v", err)
 		}
-		logger.Info("📐 Using fixed scan region from config: %v", region)
+		logger.Info("[REGION] Using fixed scan region from config: %v", region)
 	} else {
 		// Interactive selector
 		logger.Info("\n[1] Màn hình sẽ mờ đi. Hãy KÉO CHUỘT KHOANH VÙNG khu vực hay xuất hiện button.")
@@ -136,8 +139,8 @@ func main() {
 		if err != nil {
 			logger.Fatal("Selector error: %v", err)
 		}
-		logger.Info("✅ Region selected: %v", region)
-		logger.Info("💡 TIP: Thêm dòng sau vào config.yaml để khỏi chọn lại lần sau:")
+		logger.Info("[REGION] Selected: %v", region)
+		logger.Info("[TIP] Add to config.yaml to skip selection next time:")
 		logger.Info("   scan_region: \"%d,%d,%d,%d\"", region.Min.X, region.Min.Y, region.Dx(), region.Dy())
 	}
 
@@ -149,7 +152,7 @@ func main() {
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sigChan
-		logger.Info("\n🛑 Shutting down gracefully...")
+		logger.Info("\n[STOP] Shutting down gracefully...")
 		cancel()
 	}()
 
@@ -159,9 +162,9 @@ func main() {
 		os.MkdirAll(debugDir, 0755)
 		testCapture := filepath.Join(debugDir, "test_capture.png")
 		if err := engine.SaveCaptureOnce(region, testCapture); err != nil {
-			logger.Error("⚠ Debug capture failed: %v", err)
+			logger.Error("[DEBUG] Capture failed: %v", err)
 		} else {
-			logger.Info("  🔍 Debug capture saved to: %s\n", testCapture)
+			logger.Info("[DEBUG] Capture saved to: %s\n", testCapture)
 		}
 	}
 
@@ -188,8 +191,8 @@ func main() {
 	hotkeyChan := make(chan hotkey.Action, 4)
 	go func() {
 		if err := hotkey.Listen(hotkeyChan); err != nil {
-			logger.Error("⚠ Global hotkey registration failed: %v", err)
-			logger.Info("💡 F6/F7 hotkeys unavailable (another instance may be running)")
+			logger.Error("[HOTKEY] Registration failed: %v", err)
+			logger.Info("[HOTKEY] F6/F7 unavailable (another instance may be running)")
 		}
 	}()
 
@@ -199,20 +202,20 @@ func main() {
 			case hotkey.ActionTogglePause:
 				eng.TogglePause()
 			case hotkey.ActionStop:
-				logger.Info("🛑 F7 pressed — Shutting down...")
+				logger.Info("[STOP] F7 pressed -- Shutting down...")
 				cancel()
 			}
 		}
 	}()
 
-	logger.Info("⌨  Hotkeys: F6 = Pause/Resume | F7 = Stop")
+	logger.Info("[HOTKEY] F6 = Pause/Resume | F7 = Stop")
 
 	if err := eng.Run(ctx); err != nil && err != context.Canceled {
 		logger.Error("Engine stopped with error: %v", err)
 	}
 
 	stats := eng.Stats()
-	logger.Info("\n📊 Final Statistics:")
+	logger.Info("\n=== Final Statistics ===")
 	logger.Info("=====================")
 	logger.Info("Total Scans : %d", stats.TotalScans)
 	logger.Info("Total Clicks: %d", stats.TotalClicks)
@@ -322,20 +325,27 @@ func resolvePath(baseDir, path string) string {
 	return filepath.Join(baseDir, path)
 }
 
+// setConsoleUTF8 sets the Windows console output codepage to UTF-8
+// so that log text renders correctly instead of garbled characters.
+func setConsoleUTF8() {
+	kernel32 := windows.NewLazySystemDLL("kernel32.dll")
+	proc := kernel32.NewProc("SetConsoleOutputCP")
+	proc.Call(65001) // CP_UTF8
+}
+
 func printBanner() {
 	banner := `
-  ╔══════════════════════════════════════════════════╗
-  ║     🖱️  AutoClickAccepted v3.2.0 Hybrid          ║
-  ║     Background-Click Stealth Engine              ║
-  ╠══════════════════════════════════════════════════╣
-  ║  Features:                                       ║
-  ║  • Silent Background Click                       ║
-  ║  • Exact Pixel Template Match & OCR Fallback     ║
-  ║  • Auto-learn templates from img/ folder         ║
-  ║  • Pause/Resume (F6) & Stop (F7) hotkeys         ║
-  ╚══════════════════════════════════════════════════╝
+  +----------------------------------------------------+
+  |     AutoClickAccepted v3.2.0 Hybrid                |
+  |     Background-Click Stealth Engine                |
+  +----------------------------------------------------+
+  |  Features:                                         |
+  |  * Silent Background Click (PostMessage)           |
+  |  * Exact Pixel Template Match + OCR Fallback       |
+  |  * Auto-learn templates from img/ folder           |
+  |  * Pause/Resume (F6) & Stop (F7) hotkeys           |
+  +----------------------------------------------------+
 `
 	fmt.Print(banner)
-	// Also write to log file via logger
-	logger.Info("AutoClickAccepted v3.2.0 Hybrid — Engine started")
+	logger.Info("AutoClickAccepted v3.2.0 Hybrid -- Engine started")
 }

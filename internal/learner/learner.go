@@ -60,13 +60,13 @@ func LearnFromImages(imgDir string) ([]string, []matcher.Template, error) {
 		// Load the source image
 		f, err := os.Open(imgPath)
 		if err != nil {
-			logger.Error("[LEARN] ✗ Failed to open %s: %v", entry.Name(), err)
+			logger.Error("[LEARN] Failed to open %s: %v", entry.Name(), err)
 			continue
 		}
 		srcImg, _, decErr := image.Decode(f)
 		f.Close()
 		if decErr != nil {
-			logger.Error("[LEARN] ✗ Failed to decode %s: %v", entry.Name(), decErr)
+			logger.Error("[LEARN] Failed to decode %s: %v", entry.Name(), decErr)
 			continue
 		}
 
@@ -84,7 +84,7 @@ func LearnFromImages(imgDir string) ([]string, []matcher.Template, error) {
 				// E.g. if image is 300px wide with _x300 suffix, the native button might
 				// have been ~100px. We downscale by the ratio to approximate native size.
 				if actualWidth > 0 {
-					logger.Info("[LEARN] ℹ️  %s detected as pre-scaled (suffix _x%d). Will downscale for template matching.", entry.Name(), targetWidth)
+					logger.Info("[LEARN] %s is pre-scaled (suffix _x%d). Downscaling for template matching.", entry.Name(), targetWidth)
 					// Downscale by 3x (matching the standard 3x OCR upscale)
 					tmplImg = downscaleImage(srcImg, 3)
 				}
@@ -99,14 +99,14 @@ func LearnFromImages(imgDir string) ([]string, []matcher.Template, error) {
 				Image: tmplImg,
 			})
 		} else {
-			logger.Error("[LEARN] ⚠ %s quá lớn (%dx%d > %dx%d) — không dùng template matching (chỉ dùng OCR).",
+			logger.Error("[LEARN] %s too large (%dx%d > %dx%d) -- skipping template match, OCR only.",
 				entry.Name(), tmplBounds.Dx(), tmplBounds.Dy(), maxTemplateSize, maxTemplateSize)
 		}
 
 		// Upscale the image before OCR for better accuracy
 		scaledPath, err := upscaleImage(imgPath)
 		if err != nil {
-			logger.Error("[LEARN] ✗ Failed to upscale %s: %v", entry.Name(), err)
+			logger.Error("[LEARN] Failed to upscale %s: %v", entry.Name(), err)
 			continue
 		}
 
@@ -115,7 +115,7 @@ func LearnFromImages(imgDir string) ([]string, []matcher.Template, error) {
 		os.Remove(scaledPath)
 
 		if ocrErr != nil {
-			logger.Error("[LEARN] ✗ OCR failed for %s: %v", entry.Name(), ocrErr)
+			logger.Error("[LEARN] OCR failed for %s: %v", entry.Name(), ocrErr)
 			continue
 		}
 
@@ -139,10 +139,10 @@ func LearnFromImages(imgDir string) ([]string, []matcher.Template, error) {
 
 		// Warning if too many words are found in a single image (indicates full screen screenshot rather than cropped button)
 		if len(localSet) > 10 {
-			logger.Error("[LEARN] ⚠ BÁO ĐỘNG: Tìm thấy %d từ trong file %s", len(localSet), entry.Name())
-			logger.Error("[LEARN] ⚠ Bức ảnh này quá lớn (Full screen)! Chức năng Auto-Learner chỉ hoạt động với ẢNH CẮT NHỎ CỦA NÚT BẤM (Cropped Button). Hãy xoá bức ảnh này đi!")
+			logger.Error("[LEARN] WARNING: Found %d words in %s", len(localSet), entry.Name())
+			logger.Error("[LEARN] Image too large (Full screen)! Use CROPPED BUTTON screenshots only.")
 		} else {
-			logger.Info("[LEARN] ✓ Scanned %s → %d words extracted", entry.Name(), len(localSet))
+			logger.Info("[LEARN] OK: %s -> %d words extracted", entry.Name(), len(localSet))
 		}
 	}
 
