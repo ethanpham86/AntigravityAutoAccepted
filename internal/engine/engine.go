@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ethanpham86/AutoClickAccepted/internal/capture"
@@ -18,6 +19,8 @@ import (
 )
 
 const ScaleFactor = 3
+const maxClicksPerScan = 3  // Strict limit: max 3 clicks per scan to prevent spam
+const dedupRadiusSq = 90000 // 300px radius squared — prevent clicking same button region
 
 type Config struct {
 	Keywords            []string
@@ -28,19 +31,23 @@ type Config struct {
 	DebugDir            string
 	DebugMode           bool
 	UseBackgroundClick  bool
+	OCRAvailable        bool // Whether Tesseract is installed and usable
 }
 
 type Engine struct {
 	region image.Rectangle
 	config Config
 	stats  Stats
+	mu     sync.RWMutex
+	paused bool
 }
 
 type Stats struct {
-	TotalScans  int
-	TotalClicks int
-	TotalErrors int
-	StartTime   time.Time
+	TotalScans    int
+	TotalClicks   int
+	TotalErrors   int
+	StartTime     time.Time
+	ClicksByLabel map[string]int // Per-keyword/template click counts
 }
 
 func New(region image.Rectangle, cfg Config) *Engine {
@@ -53,16 +60,76 @@ func New(region image.Rectangle, cfg Config) *Engine {
 	return &Engine{
 		region: region,
 		config: cfg,
-		stats:  Stats{StartTime: time.Now()},
+		stats: Stats{
+			StartTime:     time.Now(),
+			ClicksByLabel: make(map[string]int),
+		},
 	}
 }
 
 func (e *Engine) Stats() Stats {
-	return e.stats
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	// Return a copy of the stats with a copied map
+	s := e.stats
+	s.ClicksByLabel = make(map[string]int, len(e.stats.ClicksByLabel))
+	for k, v := range e.stats.ClicksByLabel {
+		s.ClicksByLabel[k] = v
+	}
+	return s
+}
+
+// Pause pauses the scan loop.
+func (e *Engine) Pause() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if !e.paused {
+		e.paused = true
+		logger.Info("🔴 PAUSED — Nhấn F6 để tiếp tục")
+	}
+}
+
+// Resume resumes the scan loop.
+func (e *Engine) Resume() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.paused {
+		e.paused = false
+		logger.Info("🟢 RESUMED — Bot đang quét lại")
+	}
+}
+
+// TogglePause toggles between paused and running states.
+func (e *Engine) TogglePause() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.paused = !e.paused
+	if e.paused {
+		logger.Info("🔴 PAUSED — Nhấn F6 để tiếp tục")
+	} else {
+		logger.Info("🟢 RESUMED — Bot đang quét lại")
+	}
+}
+
+// IsPaused returns whether the engine is currently paused.
+func (e *Engine) IsPaused() bool {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.paused
 }
 
 func (e *Engine) Run(ctx context.Context) error {
 	interval := time.Duration(e.config.ScanIntervalMs) * time.Millisecond
+
+	bgLabel := "Physical"
+	if e.config.UseBackgroundClick {
+		bgLabel = "Background"
+	}
+
+	ocrLabel := "OFF"
+	if e.config.OCRAvailable {
+		ocrLabel = "ON"
+	}
 
 	fmt.Println()
 	fmt.Println("╔══════════════════════════════════════════════════╗")
@@ -73,7 +140,10 @@ func (e *Engine) Run(ctx context.Context) error {
 		strings.Repeat(" ", max(1, 33-len(fmt.Sprintf("%dx%d at (%d,%d)", e.region.Dx(), e.region.Dy(), e.region.Min.X, e.region.Min.Y)))))
 	fmt.Printf("║  Keywords: %-36s║\n", truncate(strings.Join(e.config.Keywords, ", "), 36))
 	fmt.Printf("║  Interval: %-36s║\n", fmt.Sprintf("%dms", e.config.ScanIntervalMs))
-	fmt.Println("║  Press Ctrl+C to stop                            ║")
+	fmt.Printf("║  Click   : %-36s║\n", bgLabel)
+	fmt.Printf("║  OCR     : %-36s║\n", ocrLabel)
+	fmt.Println("╠══════════════════════════════════════════════════╣")
+	fmt.Println("║  F6 = Pause/Resume  |  F7 = Stop  |  Ctrl+C     ║")
 	fmt.Println("╚══════════════════════════════════════════════════╝")
 	fmt.Println()
 
@@ -87,9 +157,19 @@ func (e *Engine) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
+			if e.IsPaused() {
+				continue
+			}
 			e.scanAndClick()
 		}
 	}
+}
+
+func (e *Engine) recordClick(label string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.stats.TotalClicks++
+	e.stats.ClicksByLabel[label]++
 }
 
 func (e *Engine) scanAndClick() {
@@ -108,6 +188,11 @@ func (e *Engine) scanAndClick() {
 		e.saveDebugCapture(capturePathRaw, "_1x")
 	}
 
+	bgTag := "Physical"
+	if e.config.UseBackgroundClick {
+		bgTag = "BG"
+	}
+
 	// 1. FAST IMAGE TEMPLATE MATCHING
 	if len(e.config.Templates) > 0 {
 		f, err := os.Open(capturePathRaw)
@@ -117,6 +202,12 @@ func (e *Engine) scanAndClick() {
 			if err == nil {
 				// Require 85% exact pixel similarity for click execution
 				fastMatches, bestMissName, highestConf := matcher.MatchSingle(capImg, e.config.Templates, 0.85)
+
+				// Hard cap: only process top N matches to prevent spam clicking
+				if len(fastMatches) > maxClicksPerScan {
+					logger.Info("[SCAN #%d] ⚡ Capped %d template matches → %d", e.stats.TotalScans, len(fastMatches), maxClicksPerScan)
+					fastMatches = fastMatches[:maxClicksPerScan]
+				}
 
 				if len(fastMatches) == 0 && highestConf >= 0.60 {
 					logger.Info("[SCAN #%d] 💡 Almost Matched \"%s\" (Similarity: %.1f%%, Needs: 85%%)", e.stats.TotalScans, bestMissName, highestConf*100)
@@ -134,7 +225,7 @@ func (e *Engine) scanAndClick() {
 						duplicate := false
 						for _, c := range clickedSpots {
 							dx, dy := absX-c.x, absY-c.y
-							if dx*dx+dy*dy < 400 {
+							if dx*dx+dy*dy < dedupRadiusSq { // 300 pixels radius
 								duplicate = true
 								break
 							}
@@ -144,16 +235,20 @@ func (e *Engine) scanAndClick() {
 						}
 						clickedSpots = append(clickedSpots, struct{ x, y int }{absX, absY})
 
-						logger.Info("[SCAN #%d] 🌟 EXACT IMAGE MATCH \"%s\" (conf=%.2f) → clicking at (%d, %d)",
-							e.stats.TotalScans, tm.TemplateName, tm.Confidence, absX, absY)
+						logger.Click("\"%s\" @ (%d,%d) | Template %.0f%% | %s",
+							tm.TemplateName, absX, absY, tm.Confidence*100, bgTag)
 
 						if err := clicker.ClickAt(absX, absY, e.config.UseBackgroundClick); err != nil {
 							e.stats.TotalErrors++
 							logger.Error("[SCAN #%d] ✗ Click failed: %v", e.stats.TotalScans, err)
 							continue
 						}
-						e.stats.TotalClicks++
-						time.Sleep(500 * time.Millisecond)
+						e.recordClick(tm.TemplateName)
+						time.Sleep(300 * time.Millisecond)
+
+						if len(clickedSpots) >= maxClicksPerScan {
+							break
+						}
 					}
 					// If visual match worked, skip expensive OCR completely.
 					if len(clickedSpots) > 0 {
@@ -165,6 +260,11 @@ func (e *Engine) scanAndClick() {
 	}
 
 	// 2. OCR FALLBACK MATCHING (Requires 3x upscaled image)
+	if !e.config.OCRAvailable {
+		logger.Debug("[SCAN #%d] — OCR skipped (Tesseract not installed)", e.stats.TotalScans)
+		return
+	}
+
 	ocrCapturePath, err := capture.CaptureToFile(e.region, 3)
 	if err != nil {
 		e.stats.TotalErrors++
@@ -230,7 +330,7 @@ func (e *Engine) scanAndClick() {
 		duplicate := false
 		for _, c := range clickedSpots {
 			dx, dy := absX-c.x, absY-c.y
-			if dx*dx+dy*dy < 400 {
+			if dx*dx+dy*dy < dedupRadiusSq { // 300 pixels radius
 				duplicate = true
 				break
 			}
@@ -240,8 +340,8 @@ func (e *Engine) scanAndClick() {
 		}
 		clickedSpots = append(clickedSpots, coord{x: absX, y: absY})
 
-		logger.Info("[SCAN #%d] ✓ Found \"%s\" (conf=%d) → clicking at (%d, %d) [Background=%v]",
-			e.stats.TotalScans, hit.Keyword, hit.Confidence, absX, absY, e.config.UseBackgroundClick)
+		logger.Click("\"%s\" @ (%d,%d) | OCR conf=%d%% | %s",
+			hit.Keyword, absX, absY, hit.Confidence, bgTag)
 
 		if err := clicker.ClickAt(absX, absY, e.config.UseBackgroundClick); err != nil {
 			e.stats.TotalErrors++
@@ -249,8 +349,12 @@ func (e *Engine) scanAndClick() {
 			continue
 		}
 
-		e.stats.TotalClicks++
-		time.Sleep(500 * time.Millisecond)
+		e.recordClick(hit.Keyword)
+		time.Sleep(300 * time.Millisecond)
+
+		if len(clickedSpots) >= maxClicksPerScan {
+			break
+		}
 	}
 }
 

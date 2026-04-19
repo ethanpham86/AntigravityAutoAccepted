@@ -3,6 +3,7 @@ package matcher
 import (
 	"image"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -150,7 +151,58 @@ func MatchSingle(screen image.Image, templates []Template, threshold float64) ([
 		}
 	}
 	wg.Wait()
+
+	// Non-Maximum Suppression: keep only 1 best match per real button
+	matches = nonMaxSuppression(matches, 150)
+
 	return matches, globalBestName, globalBestConf
+}
+
+// nonMaxSuppression consolidates overlapping detections into single best matches.
+// For each cluster of matches within `radius` pixels of each other, only the
+// highest-confidence match is kept. This prevents clicking the same button 100+ times.
+func nonMaxSuppression(matches []Match, radius int) []Match {
+	if len(matches) <= 1 {
+		return matches
+	}
+
+	// Sort by confidence descending
+	sort.Slice(matches, func(i, j int) bool {
+		return matches[i].Confidence > matches[j].Confidence
+	})
+
+	radiusSq := radius * radius
+	suppressed := make([]bool, len(matches))
+	var result []Match
+
+	for i := 0; i < len(matches); i++ {
+		if suppressed[i] {
+			continue
+		}
+		result = append(result, matches[i])
+		ci := centerOf(matches[i].Bounds)
+
+		// Suppress all lower-confidence matches within radius
+		for j := i + 1; j < len(matches); j++ {
+			if suppressed[j] {
+				continue
+			}
+			cj := centerOf(matches[j].Bounds)
+			dx := ci.X - cj.X
+			dy := ci.Y - cj.Y
+			if dx*dx+dy*dy < radiusSq {
+				suppressed[j] = true
+			}
+		}
+	}
+	return result
+}
+
+func centerOf(r image.Rectangle) image.Point {
+	return image.Point{
+		X: (r.Min.X + r.Max.X) / 2,
+		Y: (r.Min.Y + r.Max.Y) / 2,
+	}
 }
 
 // findMatchesInRegion sweeps the template across the screen y-region.
@@ -167,7 +219,7 @@ func findMatchesInRegion(screen image.Image, fTmpl FastTemplate, startY, endY in
 	endX := sMaxX - tW + 1
 
 	for y := startY; y < endY; y++ {
-		for x := sMinX; x < endX; x++ {
+		for x := sMinX; x < endX; x += 2 { // Step-skip 2px to reduce false duplicates
 			
 			// PASS 1: Coarse Grid Filter (200 uniformly sampled pixels)
 			var coarseDiffAccum float64

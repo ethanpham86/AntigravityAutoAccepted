@@ -12,6 +12,19 @@ import (
 	"syscall"
 )
 
+// IsAvailable checks if Tesseract OCR is installed and accessible.
+// Call once at startup to decide whether to enable OCR fallback path.
+func IsAvailable() bool {
+	if _, err := exec.LookPath("tesseract"); err == nil {
+		return true
+	}
+	fallbackPath := `C:\Program Files\Tesseract-OCR\tesseract.exe`
+	if _, err := os.Stat(fallbackPath); err == nil {
+		return true
+	}
+	return false
+}
+
 // TextMatch represents a detected word with its bounding box and confidence.
 type TextMatch struct {
 	Text       string          // Raw text extracted explicitly from Tesseract
@@ -41,7 +54,11 @@ func DetectText(imagePath string) ([]TextMatch, error) {
 	cmd := exec.Command(tesseractPath, imagePath, "stdout", "-l", "eng", "--psm", "11", "-c", "debug_file=NUL", "tsv")
 
 	// Disable window creation flash (Windows specific) to make it whisper quiet
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	// CREATE_NO_WINDOW (0x08000000) prevents CMD flash even when parent is a console app
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		HideWindow:    true,
+		CreationFlags: 0x08000000,
+	}
 
 	// Capture stdout and stderr separately.
 	// Tesseract often writes warnings to stderr even on success.

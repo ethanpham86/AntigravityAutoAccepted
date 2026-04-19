@@ -20,10 +20,10 @@ func TestParseTSV(t *testing.T) {
 	}
 
 	expected := []TextMatch{
-		{"Auto", image.Rect(10, 20, 60, 35), 95},
-		{"Click", image.Rect(65, 20, 110, 35), 91},
-		{"noise", image.Rect(120, 20, 180, 35), 12}, // Low conf parsing
-		{"ACCEPTED", image.Rect(190, 20, 270, 35), 99},
+		{Text: "Auto", Bounds: image.Rect(10, 20, 60, 35), Confidence: 95},
+		{Text: "Click", Bounds: image.Rect(65, 20, 110, 35), Confidence: 91},
+		{Text: "noise", Bounds: image.Rect(120, 20, 180, 35), Confidence: 12}, // Low conf parsing
+		{Text: "ACCEPTED", Bounds: image.Rect(190, 20, 270, 35), Confidence: 99},
 	}
 
 	if len(matches) != len(expected) {
@@ -39,10 +39,10 @@ func TestParseTSV(t *testing.T) {
 
 func TestFindKeywords(t *testing.T) {
 	matches := []TextMatch{
-		{"Hello", image.Rect(0, 0, 10, 10), 90},
-		{"ACCEPTED", image.Rect(0, 0, 10, 10), 95},
-		{"World", image.Rect(0, 0, 10, 10), 80},
-		{"Allow", image.Rect(0, 0, 10, 10), 40}, // Below threshold
+		{Text: "Hello", Bounds: image.Rect(0, 0, 10, 10), Confidence: 90},
+		{Text: "ACCEPTED", Bounds: image.Rect(0, 0, 10, 10), Confidence: 95},
+		{Text: "World", Bounds: image.Rect(0, 0, 10, 10), Confidence: 80},
+		{Text: "Allow", Bounds: image.Rect(0, 0, 10, 10), Confidence: 40}, // Below threshold
 	}
 
 	keywords := []string{"accepted", "ALLOW"}
@@ -60,8 +60,8 @@ func TestFindKeywords(t *testing.T) {
 
 func TestFindMultiWordKeywords(t *testing.T) {
 	matches := []TextMatch{
-		{"Allow", image.Rect(10, 10, 50, 20), 95},
-		{"Once", image.Rect(55, 10, 95, 20), 94},
+		{Text: "Allow", Bounds: image.Rect(10, 10, 50, 20), Confidence: 95},
+		{Text: "Once", Bounds: image.Rect(55, 10, 95, 20), Confidence: 94},
 	}
 
 	keywords := []string{"Allow Once"}

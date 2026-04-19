@@ -87,7 +87,12 @@ func backgroundClickAt(x, y int) error {
 	}
 
 	// Construct lParam: MAKELPARAM(x, y)
-	lParam := uintptr((clientPt.Y << 16) | (clientPt.X & 0xFFFF))
+	lParam := uintptr((uint32(clientPt.Y) & 0xFFFF) << 16 | (uint32(clientPt.X) & 0xFFFF))
+
+	// Mouse Move - Qt/Electron require mouse to move before accepting click
+	const wm_MouseMove = 0x0200
+	procPostMessageW.Call(hwnd, uintptr(wm_MouseMove), 0, lParam)
+	time.Sleep(20 * time.Millisecond)
 
 	// Mouse Down
 	procPostMessageW.Call(hwnd, uintptr(wm_LButtonDown), uintptr(mk_LButton), lParam)

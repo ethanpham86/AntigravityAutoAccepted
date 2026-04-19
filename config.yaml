@@ -19,3 +19,9 @@ log_level: "info"
 
 # Background stealth click (True = Không cướp chuột vật lý)
 use_background_click: true
+
+# Optional: Fixed scan region to skip interactive selection at startup.
+# Format: "x,y,width,height" in pixels.
+# Remove or comment out to use interactive drag-selection.
+# Example: scan_region: "100,200,800,600"
+# scan_region: ""

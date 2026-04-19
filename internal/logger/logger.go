@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 	"sync"
+
+	"golang.org/x/sys/windows"
 )
 
 type Level int
@@ -47,11 +49,39 @@ func Init(levelStr, filename string) error {
 	}
 	logFile = f
 
-	// MultiWriter to both stdout and file
-	mw := io.MultiWriter(os.Stdout, logFile)
-	sysLogger = log.New(mw, "", log.LstdFlags)
+	// Build writer: logFile ALWAYS first (guaranteed to work),
+	// then stdout ONLY if it's a valid console handle.
+	// This prevents io.MultiWriter from aborting on invalid stdout
+	// (which happens in -H windowsgui builds where stdout is NUL/invalid).
+	var writer io.Writer
+	if isStdoutValid() {
+		writer = io.MultiWriter(logFile, os.Stdout) // file first, stdout second
+	} else {
+		writer = logFile // file only — stdout is broken/invalid
+	}
+
+	sysLogger = log.New(writer, "", log.LstdFlags)
 
 	return nil
+}
+
+// isStdoutValid checks if os.Stdout is attached to a real console or pipe.
+// Returns false for Windows GUI-subsystem apps where stdout handle is invalid.
+func isStdoutValid() bool {
+	handle := windows.Handle(os.Stdout.Fd())
+	if handle == windows.InvalidHandle {
+		return false
+	}
+	// Try GetConsoleMode — works for real console handles
+	var mode uint32
+	err := windows.GetConsoleMode(handle, &mode)
+	if err == nil {
+		return true // stdout is a console
+	}
+	// Not a console — could be a pipe or file redirect, still valid
+	// Check by trying GetFileType
+	ft, _ := windows.GetFileType(handle)
+	return ft != windows.FILE_TYPE_UNKNOWN
 }
 
 // Close closes the underlying log file
@@ -75,6 +105,12 @@ func Info(format string, v ...interface{}) {
 	if currentLevel <= LevelInfo {
 		sysLogger.Output(2, "[INFO]  "+fmt.Sprintf(format, v...))
 	}
+}
+
+// Click logs click events with a dedicated tag for easy grep and readability.
+// Format: [CLICK] ✓ "Accept" @ (450,320) | OCR conf=95% | BG
+func Click(format string, v ...interface{}) {
+	sysLogger.Output(2, "[CLICK] ✓ "+fmt.Sprintf(format, v...))
 }
 
 // Error logs error messages

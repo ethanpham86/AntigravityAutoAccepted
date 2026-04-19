@@ -12,16 +12,22 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"image"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/ethanpham86/AutoClickAccepted/internal/engine"
+	"github.com/ethanpham86/AutoClickAccepted/internal/hotkey"
 	"github.com/ethanpham86/AutoClickAccepted/internal/learner"
 	"github.com/ethanpham86/AutoClickAccepted/internal/logger"
+	"github.com/ethanpham86/AutoClickAccepted/internal/ocr"
 	"github.com/ethanpham86/AutoClickAccepted/internal/selector"
 
+	"golang.org/x/sys/windows"
 	"gopkg.in/yaml.v3"
 )
 
@@ -32,25 +38,42 @@ type appConfig struct {
 	ConfidenceThreshold int      `yaml:"confidence_threshold"`
 	LogLevel            string   `yaml:"log_level"`
 	UseBackgroundClick  bool     `yaml:"use_background_click"`
+	ScanRegion          string   `yaml:"scan_region"` // Optional: "x,y,width,height" to skip interactive selector
 }
 
 func main() {
+	// Ensure we have a visible console window even if built with -H windowsgui
+	ensureConsole()
+
+	// Set DPI awareness so screen coordinates are accurate on high-DPI displays
+	setDPIAware()
+
 	configPath := flag.String("config", "config.yaml", "Path to config.yaml")
 	debug := flag.Bool("debug", false, "Enable debug mode: save captures and show all detected words")
 	imgDir := flag.String("imgdir", "img", "Path to sample images directory for learning")
 	intervalOpt := flag.Int("interval", 0, "Scan interval in milliseconds (overrides config.yaml)")
 	flag.Parse()
 
+	// Resolve paths relative to the exe location (not CWD) for portability
+	exeDir := getExeDir()
+	resolvedConfig := resolvePath(exeDir, *configPath)
+	resolvedImgDir := resolvePath(exeDir, *imgDir)
+
 	// Load config initially to init logger
-	cfg, err := loadConfig(*configPath)
+	cfg, err := loadConfig(resolvedConfig)
 	if err != nil {
 		fmt.Printf("Failed to load config: %v\n", err)
+		fmt.Println("Press Enter to exit...")
+		fmt.Scanln()
 		os.Exit(1)
 	}
 
-	// Init File Logger
-	if err := logger.Init(cfg.LogLevel, "autoclick.log"); err != nil {
+	// Init File Logger (resolve log file relative to exe dir too)
+	logPath := filepath.Join(exeDir, "autoclick.log")
+	if err := logger.Init(cfg.LogLevel, logPath); err != nil {
 		fmt.Printf("Failed to initialize logger: %v\n", err)
+		fmt.Println("Press Enter to exit...")
+		fmt.Scanln()
 		os.Exit(1)
 	}
 	defer logger.Close()
@@ -63,8 +86,17 @@ func main() {
 		logger.Info("⏱ Overriding scan interval: %d ms", cfg.ScanIntervalMs)
 	}
 
+	// ===== CHECK TESSERACT AVAILABILITY =====
+	ocrAvailable := ocr.IsAvailable()
+	if ocrAvailable {
+		logger.Info("✅ Tesseract OCR: Installed — OCR fallback enabled")
+	} else {
+		logger.Info("⚠  Tesseract OCR: NOT FOUND — Running template-matching only")
+		logger.Info("💡 Install Tesseract from dependencies/ folder to enable OCR fallback")
+	}
+
 	// ===== LEARNER: Auto-learn keywords from img/ folder =====
-	learnedWords, templates, err := learner.LearnFromImages(*imgDir)
+	learnedWords, templates, err := learner.LearnFromImages(resolvedImgDir)
 	if err != nil {
 		logger.Error("⚠ Learner warning: %v", err)
 	}
@@ -85,15 +117,29 @@ func main() {
 		logger.Info("🛠  Debug Mode: ON (Captures will be saved to debug/)")
 	}
 
-	// Wait for user to select a region (unless configured statically later)
-	logger.Info("\n[1] Màn hình sẽ mờ đi. Hãy KÉO CHUỘT KHOANH VÙNG khu vực hay xuất hiện button.")
-	logger.Info("[2] Nhấn Ctrl+C bất cứ lúc nào để thoát.\n")
+	// ===== REGION SELECTION =====
+	var region image.Rectangle
 
-	region, err := selector.SelectRegion()
-	if err != nil {
-		logger.Fatal("Selector error: %v", err)
+	if cfg.ScanRegion != "" {
+		// Parse fixed region from config: "x,y,width,height"
+		region, err = parseScanRegion(cfg.ScanRegion)
+		if err != nil {
+			logger.Fatal("Invalid scan_region in config: %v", err)
+		}
+		logger.Info("📐 Using fixed scan region from config: %v", region)
+	} else {
+		// Interactive selector
+		logger.Info("\n[1] Màn hình sẽ mờ đi. Hãy KÉO CHUỘT KHOANH VÙNG khu vực hay xuất hiện button.")
+		logger.Info("[2] Nhấn Ctrl+C bất cứ lúc nào để thoát.\n")
+
+		region, err = selector.SelectRegion()
+		if err != nil {
+			logger.Fatal("Selector error: %v", err)
+		}
+		logger.Info("✅ Region selected: %v", region)
+		logger.Info("💡 TIP: Thêm dòng sau vào config.yaml để khỏi chọn lại lần sau:")
+		logger.Info("   scan_region: \"%d,%d,%d,%d\"", region.Min.X, region.Min.Y, region.Dx(), region.Dy())
 	}
-	logger.Info("✅ Region selected: %v", region)
 
 	// Context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -109,7 +155,7 @@ func main() {
 
 	// Debug: save one capture immediately to inspect
 	if *debug {
-		debugDir := filepath.Join(".", "debug")
+		debugDir := filepath.Join(exeDir, "debug")
 		os.MkdirAll(debugDir, 0755)
 		testCapture := filepath.Join(debugDir, "test_capture.png")
 		if err := engine.SaveCaptureOnce(region, testCapture); err != nil {
@@ -122,7 +168,7 @@ func main() {
 	// Create engine
 	debugDir := ""
 	if *debug {
-		debugDir = filepath.Join(".", "debug")
+		debugDir = filepath.Join(exeDir, "debug")
 	}
 
 	// Initialize and run the engine
@@ -135,7 +181,31 @@ func main() {
 		DebugDir:            debugDir,
 		DebugMode:           *debug,
 		UseBackgroundClick:  cfg.UseBackgroundClick,
+		OCRAvailable:        ocrAvailable,
 	})
+
+	// ===== GLOBAL HOTKEY LISTENER =====
+	hotkeyChan := make(chan hotkey.Action, 4)
+	go func() {
+		if err := hotkey.Listen(hotkeyChan); err != nil {
+			logger.Error("⚠ Global hotkey registration failed: %v", err)
+			logger.Info("💡 F6/F7 hotkeys unavailable (another instance may be running)")
+		}
+	}()
+
+	go func() {
+		for action := range hotkeyChan {
+			switch action {
+			case hotkey.ActionTogglePause:
+				eng.TogglePause()
+			case hotkey.ActionStop:
+				logger.Info("🛑 F7 pressed — Shutting down...")
+				cancel()
+			}
+		}
+	}()
+
+	logger.Info("⌨  Hotkeys: F6 = Pause/Resume | F7 = Stop")
 
 	if err := eng.Run(ctx); err != nil && err != context.Canceled {
 		logger.Error("Engine stopped with error: %v", err)
@@ -147,6 +217,14 @@ func main() {
 	logger.Info("Total Scans : %d", stats.TotalScans)
 	logger.Info("Total Clicks: %d", stats.TotalClicks)
 	logger.Info("Total Errors: %d", stats.TotalErrors)
+
+	// Per-keyword click breakdown
+	if len(stats.ClicksByLabel) > 0 {
+		logger.Info("--- Clicks by Keyword ---")
+		for label, count := range stats.ClicksByLabel {
+			logger.Info("  %-20s : %d clicks", label, count)
+		}
+	}
 	logger.Info("=====================")
 }
 
@@ -172,26 +250,92 @@ func loadConfig(path string) (*appConfig, error) {
 	if cfg.ConfidenceThreshold <= 0 {
 		cfg.ConfidenceThreshold = 30
 	}
-	// Background click defaults to true if omitted, for better UX
-	if !cfg.UseBackgroundClick {
-		// Just to log it properly, we allow false as explicit setting. But actually Go defaults bools to false.
-		// So we can just leave it to whatever parsed.
-	}
 
 	return &cfg, nil
 }
 
+// parseScanRegion parses "x,y,width,height" into an image.Rectangle
+func parseScanRegion(s string) (image.Rectangle, error) {
+	parts := strings.Split(strings.TrimSpace(s), ",")
+	if len(parts) != 4 {
+		return image.Rectangle{}, fmt.Errorf("expected 4 values (x,y,w,h), got %d", len(parts))
+	}
+
+	x, err1 := strconv.Atoi(strings.TrimSpace(parts[0]))
+	y, err2 := strconv.Atoi(strings.TrimSpace(parts[1]))
+	w, err3 := strconv.Atoi(strings.TrimSpace(parts[2]))
+	h, err4 := strconv.Atoi(strings.TrimSpace(parts[3]))
+
+	if err1 != nil || err2 != nil || err3 != nil || err4 != nil {
+		return image.Rectangle{}, fmt.Errorf("invalid numbers in scan_region: %q", s)
+	}
+
+	if w < 10 || h < 10 {
+		return image.Rectangle{}, fmt.Errorf("scan_region too small: %dx%d (minimum 10x10)", w, h)
+	}
+
+	return image.Rect(x, y, x+w, y+h), nil
+}
+
+// ensureConsole allocates a console window if the app was built with -H windowsgui.
+// This allows the exe to show output even when built as a GUI subsystem app.
+func ensureConsole() {
+	kernel32 := windows.NewLazySystemDLL("kernel32.dll")
+	procGetConsoleWindow := kernel32.NewProc("GetConsoleWindow")
+	procAllocConsole := kernel32.NewProc("AllocConsole")
+
+	hwnd, _, _ := procGetConsoleWindow.Call()
+	if hwnd == 0 {
+		// No console attached — allocate one
+		procAllocConsole.Call()
+		// Reopen stdout/stderr to the new console
+		conOut, err := os.OpenFile("CONOUT$", os.O_WRONLY, 0)
+		if err == nil {
+			os.Stdout = conOut
+			os.Stderr = conOut
+		}
+	}
+}
+
+// setDPIAware tells Windows not to scale coordinates, so screen capture
+// and click positions are pixel-accurate on high-DPI displays.
+func setDPIAware() {
+	user32 := windows.NewLazySystemDLL("user32.dll")
+	proc := user32.NewProc("SetProcessDPIAware")
+	proc.Call()
+}
+
+// getExeDir returns the directory where the running executable is located.
+func getExeDir() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return "."
+	}
+	return filepath.Dir(exe)
+}
+
+// resolvePath resolves a path relative to baseDir if it's not already absolute.
+func resolvePath(baseDir, path string) string {
+	if filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(baseDir, path)
+}
+
 func printBanner() {
-	fmt.Println()
-	fmt.Println("  ╔══════════════════════════════════════════════════╗")
-	fmt.Println("  ║     🖱️  AutoClickAccepted v3.1.1 Hybrid          ║")
-	fmt.Println("  ║     Background-Click Stealth Engine              ║")
-	fmt.Println("  ╠══════════════════════════════════════════════════╣")
-	fmt.Println("  ║  Features:                                       ║")
-	fmt.Println("  ║  • Silent Background Click                       ║")
-	fmt.Println("  ║  • Exact Pixel Template Match & OCR Fallback     ║")
-	fmt.Println("  ║  • Auto-learn templates from img/ folder         ║")
-	fmt.Println("  ║  Requires: tesseract.exe on PATH                 ║")
-	fmt.Println("  ╚══════════════════════════════════════════════════╝")
-	fmt.Println()
+	banner := `
+  ╔══════════════════════════════════════════════════╗
+  ║     🖱️  AutoClickAccepted v3.2.0 Hybrid          ║
+  ║     Background-Click Stealth Engine              ║
+  ╠══════════════════════════════════════════════════╣
+  ║  Features:                                       ║
+  ║  • Silent Background Click                       ║
+  ║  • Exact Pixel Template Match & OCR Fallback     ║
+  ║  • Auto-learn templates from img/ folder         ║
+  ║  • Pause/Resume (F6) & Stop (F7) hotkeys         ║
+  ╚══════════════════════════════════════════════════╝
+`
+	fmt.Print(banner)
+	// Also write to log file via logger
+	logger.Info("AutoClickAccepted v3.2.0 Hybrid — Engine started")
 }

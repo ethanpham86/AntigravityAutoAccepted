@@ -1,56 +1,137 @@
-# Cấu Trúc Kiến Trúc (Architecture)
+# Kiến Trúc Hệ Thống — AutoClickAccepted v3.2.0
 
-## Tổng Quan (Overview)
-`AutoClickAccepted` được xây dựng hoàn toàn bằng Go (Zero-CGO dependency cho Windows API) theo cấu trúc thư mục tiêu chuẩn, đảm bảo tính clean-code, tách biệt rạch ròi giữa các Module chức năng.
+## Tổng Quan
 
-Dự án áp dụng mô hình **Event-Loop Pipeline**: `[Capture] -> [OCR] -> [Cognitive/Learner] -> [Sweep Match] -> [Syscall Clicker]`.
+`AutoClickAccepted` được xây dựng hoàn toàn bằng Go (Zero-CGO) theo kiến trúc **Hybrid Dual-Path**:
+- **Fast Path:** Template Matching bằng pixel SAD — so khớp ảnh mẫu 1:1 với màn hình
+- **Slow Path:** Tesseract OCR Fallback — đọc chữ trên UI khi template không khớp
+
+Sử dụng `golang.org/x/sys/windows` để gọi trực tiếp Windows API (GDI, User32).
+
+---
+
+## Các Module Cốt Lõi (9 Modules)
+
+### 1. `internal/capture` — Chụp Màn Hình
+Sử dụng `user32.dll` và `gdi32.dll` (GDI) để chụp ảnh màn hình:
+- `GetDC(0)` → `CreateCompatibleDC` → `BitBlt` → `GetDIBits`
+- Tốc độ ~10ms/frame
+- Hỗ trợ upscale bằng nearest-neighbor (factor 1x cho template, 3x cho OCR)
+- Xử lý toạ độ đa màn hình (negative coordinates)
+
+### 2. `internal/matcher` — Template Matching Engine
+Thuật toán **Sum of Absolute Differences (SAD)** — pure Go, multi-threaded:
+- **Coarse Pass:** 200 pixel sample → loại >99% candidates trong O(1)
+- **Fine Pass:** Full pixel sweep (chỉ chạy nếu coarse pass pass)
+- **4 goroutines** chia vùng quét theo Y
+- **Alpha Mask:** Bỏ qua pixel transparent (alpha < 128)
+- **Non-Maximum Suppression:** 150px radius → 1 best match per button
+- **Early Exit:** Abort khi diff vượt threshold giữa chừng
+- Ngưỡng: 85% pixel similarity = match → click
+
+### 3. `internal/ocr` — Nhận Dạng Chữ (Tesseract)
+Kết nối gián tiếp (`os/exec`) sang `tesseract.exe`:
+- `--psm 11` (Sparse Text) — tối ưu cho UI buttons
+- `-c debug_file=NUL` — chặn C++ memory leak warnings
+- `CREATE_NO_WINDOW` — không flash CMD window
+- **`IsAvailable()`** — check Tesseract 1 lần khi khởi động. Nếu không có → skip OCR hoàn toàn
+- **Fuzzy matching:** Exact → Contains (≥5 chars) → Levenshtein distance (≤2)
+- **Multi-word:** Sequential word match + concatenation ("Allow Once" = "AllowOnce")
+
+### 4. `internal/engine` — Bộ Não
+Loop Timer quản lý nhịp quét và click:
+- **Pause/Resume:** `paused bool` + `sync.RWMutex`, toggle bằng F6
+- **Hybrid Pipeline:** Template Match → (miss) → OCR Fallback → Click
+- **Dedup:** Bán kính 300px — không click trùng cùng nút
+- **Max 3 clicks/scan** — chống spam
+- **Per-keyword stats** — `ClicksByLabel map[string]int`
+- **OCR gate:** Skip OCR path nếu Tesseract chưa cài
+
+### 5. `internal/hotkey` — Global Hotkey (**MỚI v3.2.0**)
+Đăng ký phím tắt toàn hệ thống qua Win32 `RegisterHotKey`:
+- **F6** = Toggle Pause/Resume
+- **F7** = Stop (graceful shutdown)
+- Chạy `GetMessageW` message pump trong goroutine riêng
+- Hoạt động kể cả khi console không focus
+
+### 6. `internal/clicker` — Click Chuột
+2 chế độ click:
+
+| Chế độ | API | Khi nào dùng |
+|--------|-----|-------------|
+| **Background** (mặc định) | `WindowFromPhysicalPoint` → `ScreenToClient` → `PostMessageW` | Không cướp chuột vật lý |
+| **Physical** (fallback) | `SetCursorPos` → `SendInput` | Khi Background fail |
+
+Fallback tự động: Background fail → Physical.
+
+### 7. `internal/learner` — Tự Học
+Khi khởi động, quét `img/` folder:
+1. Ảnh ≤ 200x200 → template pixel matching
+2. Ảnh lớn hơn → chỉ OCR, không dùng template (cảnh báo)
+3. Upscale 3x → Tesseract → extract keywords
+4. Filter noise, stop words, **anti-keywords** (Cancel, Close, Deny, Reject)
+5. Merge vào config keywords (case-insensitive dedup)
+
+### 8. `internal/logger` — Logging
+5 log levels: `Debug`, `Info`, `Click`, `Error`, `Fatal`
+
+| Level | Tag | Khi nào |
+|-------|-----|--------|
+| Debug | `[DEBUG]` | Chi tiết scan, OCR words (chỉ khi `log_level: debug`) |
+| Info | `[INFO]` | Startup, config, learner, status |
+| **Click** | `[CLICK] ✓` | **Mỗi lần click** — keyword, toạ độ, phương thức |
+| Error | `[ERROR]` | Lỗi capture, OCR, click |
+| Fatal | `[FATAL]` | Lỗi nghiêm trọng → exit |
+
+Output: `io.MultiWriter(file, stdout)` — console + `autoclick.log` đồng thời.
+
+### 9. `internal/selector` — Chọn Vùng Quét
+PowerShell script tạo transparent overlay fullscreen:
+- Opacity 0.3, cursor crosshair
+- User kéo chuột → trả về `x,y,width,height`
+- Skip nếu config có `scan_region`
 
 ---
 
-## Các Module Cốt Lõi (Core Modules)
-
-### 1. `internal/capture` (Screen Capture)
-Sử dụng `user32.dll` và `gdi32.dll` (GDI) để chụp ảnh màn hình tĩnh tốc độ siêu cao (~10ms/frame).  
-Biến đổi không gian hình học đa màn hình xử lý luôn các toạ độ âm (Negative Coordinates). Cuối cùng upscale hình ảnh bằng `image/draw` để tăng độ nét báo cáo cho OCR.
-
-### 2. `internal/ocr` (Optical Character Recognition)
-Kết nối gián tiếp (os/exec) sang tiến trình CLI của `tesseract.exe`.
-- Cấu hình `--psm 11` (Sparse Text) ép engine lôi ra tối đa các chữ cái trong khung UI.
-- Thắt cổ chai Memory Leak của Tesseract C++ Engine bằng tuỳ biến `-c debug_file=NUL` cản luồng rác stdout Console.
-
-### 3. `internal/learner` (Auto-Learner)
-Mô đun tự học thông minh: tự quét các hình ảnh PNG trong folder `img/` khi khởi động, thu thập các chữ cái thông qua cơ chế OCR và bổ sung động vào cấu trúc `Keywords`.
-*Luật sinh tồn:* Nó đánh giá file ảnh rác bằng len(words) > 10. Chống người dùng đẩy Full Screenshot vào.
-
-### 4. `internal/engine` (The Brain)
-Loop Timer quản lý toàn bộ nhịp điệu Quét (Scan) và Nhấn (Click). 
-- **Sweep Click (Multi-Targeting):** Phát hiện 1 list tất cả các Hit. 
-- **Toạ độ toạ trúng (Dedup):** `dx*dx + dy*dy < 400` giới hạn bán kính quét trùng pixel.
-- Gửi các gói toạ độ tuyệt đối (Absolute Screen Coords) xuống tầng Syscall. Xử lý triệt để false-positive qua thuật toán Levenshtein Distance & Word Boundary.
-
-### 5. `internal/clicker` (Syscall Injector)
-Giao tiếp tầng thấp với Hệ điều hành Windows ở 2 chế độ:
-- Chế độ Mặc định (Stealth/Background Click): Dùng `WindowFromPoint` để lấy `HWND` ẩn đằng sau toạ độ OCR. Tiếp theo gọi `ScreenToClient` để đổi toạ độ và bơm thông điệp `PostMessageW` (`WM_LBUTTONDOWN`) thẳng vào ứng dụng. Tool không bao giờ đụng đến con trỏ chuột vật lý của User.
-- Chế độ Cổ điển (Fallback): Sử dụng `SetCursorPos` và `SendInput` nếu ứng dụng chặn Message giả. Vượt 100% UIPI Restriction của Windows nếu User chạy bằng đặc quyền Admin.
-
-### 6. `internal/logger` (Observability)
-Mô hình `io.MultiWriter` xuất đồng thời lên:
-- `os.Stdout` (Màn hình Console cho dev xem Real-time)
-- `autoclick.log` (File vật lý lưu vết log, phục vụ thanh tra bằng ELK/Kibana).
-
----
 ## Pipeline Tương Tác
+
 ```mermaid
 graph TD
-    A[Main Loop Timer] --> B[Capture Screen Region GDI]
-    B --> C[Tesseract OCR Processing]
-    C --> D[Identify Words + Confidence]
-    D --> E[Engine: Exact / Fuzzy Match]
-    E --> F[Engine: Sweep Dedup 20px]
-    F --> G{Background Click?}
-    G -- Yes --> H[PostMessageW]
-    G -- No --> I[SendInput]
-    H --> J[Wait 500ms Delay]
-    I --> J
-    J --> F
+    A["Main Entry"] --> DPI["SetDPIAware()"]
+    DPI --> CFG["Load config.yaml"]
+    CFG --> CHK["ocr.IsAvailable()"]
+    CHK --> LRN["Learner: scan img/"]
+    LRN --> SEL["Region Selection"]
+    SEL --> HK["Register F6/F7 Hotkeys"]
+    HK --> LOOP["Engine Loop (1500ms)"]
+
+    LOOP --> PAUSE{"IsPaused()?"}
+    PAUSE -->|"Yes"| SKIP["Skip scan"]
+    PAUSE -->|"No"| CAP["Capture 1:1 GDI"]
+
+    CAP --> TMPL{"Template SAD Match"}
+    TMPL -->|"> 85%"| CLICK["Clicker (BG/Physical)"]
+    TMPL -->|"Miss"| OCR_CHK{"OCR Available?"}
+    OCR_CHK -->|"No"| RETURN["Return"]
+    OCR_CHK -->|"Yes"| CAP3["Capture 3x"]
+    CAP3 --> OCR_RUN["Tesseract OCR"]
+    OCR_RUN --> FUZZY["Fuzzy Keyword Match"]
+    FUZZY -->|"Found"| CLICK
+
+    CLICK --> LOG["[CLICK] ✓ keyword @ coords"]
+    LOG --> STATS["Stats.ClicksByLabel++"]
+    STATS --> LOOP
 ```
+
+---
+
+## Portability (Tính Di Động)
+
+| Feature | Cách hoạt động |
+|---------|---------------|
+| Config path | `config.yaml` resolve relative to exe location, không phải CWD |
+| Image path | `img/` resolve relative to exe location |
+| Log path | `autoclick.log` nằm cạnh exe |
+| Tesseract | Optional — bot vẫn chạy bằng template matching nếu không cài |
+| DPI | `SetProcessDPIAware()` gọi khi khởi động |
+| Single file | Copy `autoclick.exe` + `config.yaml` + `img/` = đủ |

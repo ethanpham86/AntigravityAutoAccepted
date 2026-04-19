@@ -8,6 +8,8 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 
 	_ "image/jpeg"
@@ -16,6 +18,15 @@ import (
 	"github.com/ethanpham86/AutoClickAccepted/internal/matcher"
 	"github.com/ethanpham86/AutoClickAccepted/internal/ocr"
 )
+
+// maxTemplateSize is the maximum dimension (width or height) for a template image.
+// Images larger than this are excluded from template matching to prevent false positives
+// (large screenshots match everywhere due to background gradient overlap).
+const maxTemplateSize = 200
+
+// scalePattern matches filenames like "..._x300.png" or "..._x600.png"
+// indicating the image was pre-scaled for OCR and NOT at native screen resolution.
+var scalePattern = regexp.MustCompile(`_x(\d+)\.\w+$`)
 
 // LearnFromImages scans the imgDir for image files (png, jpg, jpeg, bmp),
 // runs Tesseract OCR on each (optionally upscaled), and returns all unique
@@ -46,15 +57,50 @@ func LearnFromImages(imgDir string) ([]string, []matcher.Template, error) {
 
 		imgPath := filepath.Join(imgDir, entry.Name())
 
-		// Extract true 1:1 scale template for exact matching
-		if f, err := os.Open(imgPath); err == nil {
-			if srcImg, _, err := image.Decode(f); err == nil {
-				templates = append(templates, matcher.Template{
-					Name:  entry.Name(),
-					Image: srcImg,
-				})
+		// Load the source image
+		f, err := os.Open(imgPath)
+		if err != nil {
+			logger.Error("[LEARN] ✗ Failed to open %s: %v", entry.Name(), err)
+			continue
+		}
+		srcImg, _, decErr := image.Decode(f)
+		f.Close()
+		if decErr != nil {
+			logger.Error("[LEARN] ✗ Failed to decode %s: %v", entry.Name(), decErr)
+			continue
+		}
+
+		// Detect if image is pre-scaled (e.g. _x300, _x600 suffix)
+		// and compute native-resolution template for exact matching
+		tmplImg := srcImg
+		scaleSuffix := scalePattern.FindStringSubmatch(entry.Name())
+		if len(scaleSuffix) >= 2 {
+			targetWidth, _ := strconv.Atoi(scaleSuffix[1])
+			if targetWidth > 0 {
+				bounds := srcImg.Bounds()
+				actualWidth := bounds.Dx()
+				// The suffix indicates the image was upscaled to targetWidth pixels.
+				// Compute the downscale factor to get back to native resolution.
+				// E.g. if image is 300px wide with _x300 suffix, the native button might
+				// have been ~100px. We downscale by the ratio to approximate native size.
+				if actualWidth > 0 {
+					logger.Info("[LEARN] ℹ️  %s detected as pre-scaled (suffix _x%d). Will downscale for template matching.", entry.Name(), targetWidth)
+					// Downscale by 3x (matching the standard 3x OCR upscale)
+					tmplImg = downscaleImage(srcImg, 3)
+				}
 			}
-			f.Close()
+		}
+
+		// Only use as template if it's small enough (cropped button, not full screenshot)
+		tmplBounds := tmplImg.Bounds()
+		if tmplBounds.Dx() <= maxTemplateSize && tmplBounds.Dy() <= maxTemplateSize {
+			templates = append(templates, matcher.Template{
+				Name:  entry.Name(),
+				Image: tmplImg,
+			})
+		} else {
+			logger.Error("[LEARN] ⚠ %s quá lớn (%dx%d > %dx%d) — không dùng template matching (chỉ dùng OCR).",
+				entry.Name(), tmplBounds.Dx(), tmplBounds.Dy(), maxTemplateSize, maxTemplateSize)
 		}
 
 		// Upscale the image before OCR for better accuracy
@@ -63,14 +109,17 @@ func LearnFromImages(imgDir string) ([]string, []matcher.Template, error) {
 			logger.Error("[LEARN] ✗ Failed to upscale %s: %v", entry.Name(), err)
 			continue
 		}
-		defer os.Remove(scaledPath)
 
-		matches, err := ocr.DetectText(scaledPath)
-		if err != nil {
-			logger.Error("[LEARN] ✗ OCR failed for %s: %v", entry.Name(), err)
+		matches, ocrErr := ocr.DetectText(scaledPath)
+		// Clean up temp file immediately (not deferred — we're in a loop)
+		os.Remove(scaledPath)
+
+		if ocrErr != nil {
+			logger.Error("[LEARN] ✗ OCR failed for %s: %v", entry.Name(), ocrErr)
 			continue
 		}
 
+		var localSet []string
 		for _, m := range matches {
 			// Accept all words for learning; real-time matching applies its own threshold
 			if m.Confidence < 0 {
@@ -81,20 +130,14 @@ func LearnFromImages(imgDir string) ([]string, []matcher.Template, error) {
 			if len(word) < 3 {
 				continue
 			}
-			if isNoise(word) || isStopWord(word) {
+			if isNoise(word) || isStopWord(word) || isAntiKeyword(word) {
 				continue
 			}
 			wordSet[word] = true
+			localSet = append(localSet, word)
 		}
 
 		// Warning if too many words are found in a single image (indicates full screen screenshot rather than cropped button)
-		var localSet []string
-		for _, m := range matches {
-			if m.Confidence >= 0 && len(strings.TrimSpace(m.Text)) >= 3 && !isNoise(strings.TrimSpace(m.Text)) && !isStopWord(strings.TrimSpace(m.Text)) {
-				localSet = append(localSet, strings.TrimSpace(m.Text))
-			}
-		}
-
 		if len(localSet) > 10 {
 			logger.Error("[LEARN] ⚠ BÁO ĐỘNG: Tìm thấy %d từ trong file %s", len(localSet), entry.Name())
 			logger.Error("[LEARN] ⚠ Bức ảnh này quá lớn (Full screen)! Chức năng Auto-Learner chỉ hoạt động với ẢNH CẮT NHỎ CỦA NÚT BẤM (Cropped Button). Hãy xoá bức ảnh này đi!")
@@ -134,6 +177,32 @@ func MergeKeywords(existing, learned []string) []string {
 	}
 
 	return merged
+}
+
+// downscaleImage reduces image dimensions by the given factor using nearest-neighbor sampling.
+func downscaleImage(src image.Image, factor int) image.Image {
+	if factor <= 1 {
+		return src
+	}
+	bounds := src.Bounds()
+	newW := bounds.Dx() / factor
+	newH := bounds.Dy() / factor
+	if newW < 1 {
+		newW = 1
+	}
+	if newH < 1 {
+		newH = 1
+	}
+
+	dst := image.NewRGBA(image.Rect(0, 0, newW, newH))
+	for y := 0; y < newH; y++ {
+		for x := 0; x < newW; x++ {
+			srcX := bounds.Min.X + x*factor
+			srcY := bounds.Min.Y + y*factor
+			dst.Set(x, y, src.At(srcX, srcY))
+		}
+	}
+	return dst
 }
 
 // upscaleImage loads an image, upscales it 3x using nearest neighbor,
@@ -192,7 +261,7 @@ func upscaleImage(srcPath string) (string, error) {
 
 // isNoise returns true if the word is just symbols, numbers, or common OCR garbage.
 func isNoise(word string) bool {
-	noiseChars := "~!@#$%^&*()_+-=[]{}|;':\",.<>?\\`"
+	noiseChars := "~!@#$%^&*()_+-=[]{}|;':\",./<>?\\\\"
 	cleanWord := word
 	for _, c := range noiseChars {
 		cleanWord = strings.ReplaceAll(cleanWord, string(c), "")
@@ -204,6 +273,10 @@ func isNoise(word string) bool {
 	if strings.Contains(word, "\\") || strings.Contains(word, "/") {
 		return true
 	}
+	// Contains + sign = keyboard shortcut like Alt+4, not button text
+	if strings.Contains(word, "+") {
+		return true
+	}
 	// Pure number
 	allDigit := true
 	for _, c := range cleanWord {
@@ -213,6 +286,18 @@ func isNoise(word string) bool {
 		}
 	}
 	return allDigit
+}
+
+// isAntiKeyword returns true if the word represents an action OPPOSITE to accepting/allowing.
+// These should NEVER be auto-clicked as they cancel, reject, or deny actions.
+func isAntiKeyword(word string) bool {
+	antiWords := map[string]bool{
+		"reject": true, "cancel": true, "deny": true, "close": true,
+		"abort": true, "decline": true, "dismiss": true, "ignore": true,
+		"skip": true, "stop": true, "exit": true, "quit": true,
+		"no": true, "never": true, "block": true, "disable": true,
+	}
+	return antiWords[strings.ToLower(word)]
 }
 
 // isStopWord returns true if the word is a common English stop word
@@ -235,6 +320,7 @@ func isStopWord(word string) bool {
 		"resorting": true, "direct": true, "targeted": true, "usage": true,
 		"thinking": true, "thought": true, "edited": true, "running": true,
 		"background": true, "command": true, "changes": true, "prioritizing": true,
+		"all": true,
 	}
 	return stopWords[strings.ToLower(word)]
 }

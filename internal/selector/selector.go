@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 const psScript = `
@@ -80,6 +81,10 @@ func SelectRegion() (image.Rectangle, error) {
 	fmt.Println()
 
 	cmd := exec.Command("powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", psScript)
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		HideWindow:    true,
+		CreationFlags: 0x08000000,
+	}
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	

@@ -4,27 +4,25 @@
 *.dll
 *.so
 *.dylib
-*.md
-*.MD
 *.env
+
 # Test binary, built with `go test -c`
 *.test
 
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
-*.md
+
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
 # Workspace objects
 bin/
-autoclick.exe
 debug/
 scratch/
+tmp/
 
 # Logs
 *.log
-autoclick.log
 
 # IDEs
 .idea/
@@ -34,9 +32,12 @@ autoclick.log
 .DS_Store
 Thumbs.db
 
-# Private AI Skills
+# Private AI Skills (specific files, not all .md)
 SKILL.MD
+SKILL-ELK-V3.1.MD
 SkillGolang-ethanPham.md
+SkillGolang-ethanPham-V3.1.md
+Git_Cheatsheet-V3.1.md
 
-# Private cheatsheet
-
+# SQL exports
+*.sql
