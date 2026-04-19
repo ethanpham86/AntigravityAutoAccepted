@@ -19,8 +19,6 @@ import (
 )
 
 const ScaleFactor = 3
-const maxClicksPerScan = 10 // Strict limit: max 10 clicks per scan to prevent spam
-const dedupRadiusSq = 6400  // 80px radius squared — prevent double-clicking same button, but allow clicking close buttons
 
 type Config struct {
 	Keywords            []string
@@ -32,6 +30,9 @@ type Config struct {
 	DebugMode           bool
 	UseBackgroundClick  bool
 	OCRAvailable        bool // Whether Tesseract is installed and usable
+	MaxClicksPerScan    int
+	DedupRadiusPx       int
+	TemplateThreshold   float64
 }
 
 type Engine struct {
@@ -200,17 +201,17 @@ func (e *Engine) scanAndClick() {
 			capImg, _, err := image.Decode(f)
 			f.Close()
 			if err == nil {
-				// Require 92% exact pixel similarity for click execution to avoid false positives
-				fastMatches, bestMissName, highestConf := matcher.MatchSingle(capImg, e.config.Templates, 0.92)
+				// Require precise exact pixel similarity for click execution to avoid false positives
+				fastMatches, bestMissName, highestConf := matcher.MatchSingle(capImg, e.config.Templates, e.config.TemplateThreshold)
 
 				// Hard cap: only process top N matches to prevent spam clicking
-				if len(fastMatches) > maxClicksPerScan {
-					logger.Info("[SCAN #%d] Capped %d template matches to %d", e.stats.TotalScans, len(fastMatches), maxClicksPerScan)
-					fastMatches = fastMatches[:maxClicksPerScan]
+				if len(fastMatches) > e.config.MaxClicksPerScan {
+					logger.Info("[SCAN #%d] Capped %d template matches to %d", e.stats.TotalScans, len(fastMatches), e.config.MaxClicksPerScan)
+					fastMatches = fastMatches[:e.config.MaxClicksPerScan]
 				}
 
 				if len(fastMatches) == 0 && highestConf >= 0.60 {
-					logger.Info("[SCAN #%d] ~~ Almost Matched \"%s\" (%.1f%%, Needs: 92%%)", e.stats.TotalScans, bestMissName, highestConf*100)
+					logger.Info("[SCAN #%d] ~~ Almost Matched \"%s\" (%.1f%%, Needs: %.0f%%)", e.stats.TotalScans, bestMissName, highestConf*100, e.config.TemplateThreshold*100)
 				}
 
 				if len(fastMatches) > 0 {
@@ -223,9 +224,10 @@ func (e *Engine) scanAndClick() {
 						absX, absY := clicker.RegionToScreen(e.region, centerX, centerY)
 
 						duplicate := false
+						dedupRadiusSq := e.config.DedupRadiusPx * e.config.DedupRadiusPx
 						for _, c := range clickedSpots {
 							dx, dy := absX-c.x, absY-c.y
-							if dx*dx+dy*dy < dedupRadiusSq { // 300 pixels radius
+							if dx*dx+dy*dy < dedupRadiusSq {
 								duplicate = true
 								break
 							}
@@ -246,7 +248,7 @@ func (e *Engine) scanAndClick() {
 						e.recordClick(tm.TemplateName)
 						time.Sleep(300 * time.Millisecond)
 
-						if len(clickedSpots) >= maxClicksPerScan {
+						if len(clickedSpots) >= e.config.MaxClicksPerScan {
 							break
 						}
 					}
@@ -328,9 +330,10 @@ func (e *Engine) scanAndClick() {
 		absX, absY := clicker.RegionToScreen(e.region, centerX, centerY)
 
 		duplicate := false
+		dedupRadiusSq := e.config.DedupRadiusPx * e.config.DedupRadiusPx
 		for _, c := range clickedSpots {
 			dx, dy := absX-c.x, absY-c.y
-			if dx*dx+dy*dy < dedupRadiusSq { // 80 pixels radius
+			if dx*dx+dy*dy < dedupRadiusSq {
 				duplicate = true
 				break
 			}
@@ -352,7 +355,7 @@ func (e *Engine) scanAndClick() {
 		e.recordClick(hit.Keyword)
 		time.Sleep(300 * time.Millisecond)
 
-		if len(clickedSpots) >= maxClicksPerScan {
+		if len(clickedSpots) >= e.config.MaxClicksPerScan {
 			break
 		}
 	}

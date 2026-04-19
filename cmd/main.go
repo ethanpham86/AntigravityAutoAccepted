@@ -39,6 +39,9 @@ type appConfig struct {
 	LogLevel            string   `yaml:"log_level"`
 	UseBackgroundClick  bool     `yaml:"use_background_click"`
 	ScanRegion          string   `yaml:"scan_region"` // Optional: "x,y,width,height" to skip interactive selector
+	MaxClicksPerScan    int      `yaml:"max_clicks_per_scan"`
+	DedupRadiusPx       int      `yaml:"dedup_radius_px"`
+	TemplateThreshold   float64  `yaml:"template_threshold"`
 }
 
 func main() {
@@ -185,6 +188,9 @@ func main() {
 		DebugMode:           *debug,
 		UseBackgroundClick:  cfg.UseBackgroundClick,
 		OCRAvailable:        ocrAvailable,
+		MaxClicksPerScan:    cfg.MaxClicksPerScan,
+		DedupRadiusPx:       cfg.DedupRadiusPx,
+		TemplateThreshold:   cfg.TemplateThreshold,
 	})
 
 	// ===== GLOBAL HOTKEY LISTENER =====
@@ -252,6 +258,15 @@ func loadConfig(path string) (*appConfig, error) {
 	}
 	if cfg.ConfidenceThreshold <= 0 {
 		cfg.ConfidenceThreshold = 30
+	}
+	if cfg.MaxClicksPerScan <= 0 {
+		cfg.MaxClicksPerScan = 10
+	}
+	if cfg.DedupRadiusPx <= 0 {
+		cfg.DedupRadiusPx = 80
+	}
+	if cfg.TemplateThreshold <= 0.0 {
+		cfg.TemplateThreshold = 0.92
 	}
 
 	return &cfg, nil

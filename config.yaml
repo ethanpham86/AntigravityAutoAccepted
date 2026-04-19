@@ -10,8 +10,15 @@ keywords:
 # Scan interval in milliseconds (1500ms = 1.5s is optimal for fast clicks without hogging CPU)
 scan_interval_ms: 3600
 
-#tối đa 3 clicks trên mỗi lần quét
-maxClicksPerScan: 20
+#tối đa X clicks trên mỗi lần quét để chống giật lag (mặc định 10)
+max_clicks_per_scan: 10
+
+# Bán kính tự động bỏ qua nếu phát hiện nút trùng lặp (tính bằng pixel). Mặc định: 80
+dedup_radius_px: 80
+
+# Tỉ lệ khớp ảnh chính xác tối thiểu (0.0 đến 1.0) khi học từ thư mục img/
+# Mặc định: 0.92 (92%). Nếu quá thấp sẽ nhận diện bậy bạ.
+template_threshold: 0.92
 
 # Minimum OCR confidence (0-100) to consider a match valid.
 # Lower = catch more (may include noise). 40 is balanced.
