@@ -157,9 +157,8 @@ func FindKeywords(matches []TextMatch, keywords []string, confidenceThreshold in
 					lenDiff = -lenDiff
 				}
 				maxDist := 1
-				if len(kwLower) >= 5 && len(textCleaned) >= 5 {
-					maxDist = 2
-				}
+				// Removed maxDist=2 for long words because 2 typos can completely change the semantic meaning
+				// (e.g. "accepted" vs "acceptall" has distance 2, leading to false positives).
 				// Ensure length difference isn't too huge to avoid checking completely unrelated words
 				if lenDiff <= 2 {
 					if levenshtein(textCleaned, kwLower) <= maxDist || levenshtein(textLower, kwLower) <= maxDist {

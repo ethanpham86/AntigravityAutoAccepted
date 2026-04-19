@@ -11,7 +11,7 @@ keywords:
 scan_interval_ms: 3600
 
 #tối đa X clicks trên mỗi lần quét để chống giật lag (mặc định 10)
-max_clicks_per_scan: 10
+max_clicks_per_scan: 20
 
 # Bán kính tự động bỏ qua nếu phát hiện nút trùng lặp (tính bằng pixel). Mặc định: 80
 dedup_radius_px: 80
