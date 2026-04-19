@@ -93,12 +93,8 @@ func LearnFromImages(imgDir string) ([]string, []matcher.Template, error) {
 
 		// Only use as template if it's small enough (cropped button, not full screenshot)
 		tmplBounds := tmplImg.Bounds()
-		if tmplBounds.Dx() <= maxTemplateSize && tmplBounds.Dy() <= maxTemplateSize {
-			templates = append(templates, matcher.Template{
-				Name:  entry.Name(),
-				Image: tmplImg,
-			})
-		} else {
+		isTemplateCandidate := tmplBounds.Dx() <= maxTemplateSize && tmplBounds.Dy() <= maxTemplateSize
+		if !isTemplateCandidate {
 			logger.Error("[LEARN] %s too large (%dx%d > %dx%d) -- skipping template match, OCR only.",
 				entry.Name(), tmplBounds.Dx(), tmplBounds.Dy(), maxTemplateSize, maxTemplateSize)
 		}
@@ -137,12 +133,27 @@ func LearnFromImages(imgDir string) ([]string, []matcher.Template, error) {
 			localSet = append(localSet, word)
 		}
 
+		// Use first OCR keyword as template display name (e.g., "Run" instead of filename)
+		// Falls back to filename if OCR found nothing
+		displayName := entry.Name()
+		if len(localSet) > 0 {
+			displayName = localSet[0]
+		}
+
+		// Add template with readable name
+		if isTemplateCandidate {
+			templates = append(templates, matcher.Template{
+				Name:  displayName,
+				Image: tmplImg,
+			})
+		}
+
 		// Warning if too many words are found in a single image (indicates full screen screenshot rather than cropped button)
 		if len(localSet) > 10 {
 			logger.Error("[LEARN] WARNING: Found %d words in %s", len(localSet), entry.Name())
 			logger.Error("[LEARN] Image too large (Full screen)! Use CROPPED BUTTON screenshots only.")
 		} else {
-			logger.Info("[LEARN] OK: %s -> %d words extracted", entry.Name(), len(localSet))
+			logger.Info("[LEARN] OK: %s -> \"%s\" (%d words)", entry.Name(), displayName, len(localSet))
 		}
 	}
 
