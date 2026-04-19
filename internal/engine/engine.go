@@ -20,7 +20,7 @@ import (
 
 const ScaleFactor = 3
 const maxClicksPerScan = 10 // Strict limit: max 10 clicks per scan to prevent spam
-const dedupRadiusSq = 90000 // 300px radius squared — prevent clicking same button region
+const dedupRadiusSq = 6400  // 80px radius squared — prevent double-clicking same button, but allow clicking close buttons
 
 type Config struct {
 	Keywords            []string
@@ -330,7 +330,7 @@ func (e *Engine) scanAndClick() {
 		duplicate := false
 		for _, c := range clickedSpots {
 			dx, dy := absX-c.x, absY-c.y
-			if dx*dx+dy*dy < dedupRadiusSq { // 300 pixels radius
+			if dx*dx+dy*dy < dedupRadiusSq { // 80 pixels radius
 				duplicate = true
 				break
 			}
