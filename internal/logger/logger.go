@@ -108,9 +108,9 @@ func Info(format string, v ...interface{}) {
 }
 
 // Click logs click events with a dedicated tag for easy grep and readability.
-// Format: [CLICK] ✓ "Accept" @ (450,320) | OCR conf=95% | BG
+// Format: [CLICK] "Accept" @ (450,320) | OCR conf=95% | BG
 func Click(format string, v ...interface{}) {
-	sysLogger.Output(2, "[CLICK] ✓ "+fmt.Sprintf(format, v...))
+	sysLogger.Output(2, "[CLICK] "+fmt.Sprintf(format, v...))
 }
 
 // Error logs error messages

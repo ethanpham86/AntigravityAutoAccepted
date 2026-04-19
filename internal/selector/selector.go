@@ -73,11 +73,11 @@ Write-Output "$($script:rect.X),$($script:rect.Y),$($script:rect.Width),$($scrip
 // SelectRegion interactively prompts the user to select a screen region using a visual overlay.
 func SelectRegion() (image.Rectangle, error) {
 	fmt.Println()
-	fmt.Println("╔══════════════════════════════════════════════════╗")
-	fmt.Println("║        SCREEN REGION SELECTION                  ║")
-	fmt.Println("╠══════════════════════════════════════════════════╣")
-	fmt.Println("║  >>> Kéo thả chuột để khoanh vùng lựa chọn      ║")
-	fmt.Println("╚══════════════════════════════════════════════════╝")
+	fmt.Println("+----------------------------------------------------+")
+	fmt.Println("|        SCREEN REGION SELECTION                      |")
+	fmt.Println("+----------------------------------------------------+")
+	fmt.Println("|  >>> Drag mouse to select scan region               |")
+	fmt.Println("+----------------------------------------------------+")
 	fmt.Println()
 
 	cmd := exec.Command("powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", psScript)
@@ -96,7 +96,7 @@ func SelectRegion() (image.Rectangle, error) {
 	result := strings.TrimSpace(out.String())
 	parts := strings.Split(result, ",")
 	if len(parts) != 4 {
-		return image.Rectangle{}, fmt.Errorf("không có vùng nào được chọn, huỷ bỏ thao tác")
+		return image.Rectangle{}, fmt.Errorf("no region selected, operation cancelled")
 	}
 
 	x, err1 := strconv.Atoi(parts[0])
@@ -105,14 +105,14 @@ func SelectRegion() (image.Rectangle, error) {
 	h, err4 := strconv.Atoi(parts[3])
 
 	if err1 != nil || err2 != nil || err3 != nil || err4 != nil {
-		return image.Rectangle{}, fmt.Errorf("lỗi phân tích toạ độ click chuột: %s", result)
+		return image.Rectangle{}, fmt.Errorf("failed to parse coordinates: %s", result)
 	}
 
 	rect := image.Rect(x, y, x+w, y+h)
 	if rect.Dx() < 10 || rect.Dy() < 10 {
-		return image.Rectangle{}, fmt.Errorf("vùng chọn quá nhỏ: %dx%d", rect.Dx(), rect.Dy())
+		return image.Rectangle{}, fmt.Errorf("selected region too small: %dx%d", rect.Dx(), rect.Dy())
 	}
 
-	fmt.Printf("    ✓ Chọn thành công vùng: %dx%d pixel tại Toạ độ (%d,%d)\n\n", rect.Dx(), rect.Dy(), rect.Min.X, rect.Min.Y)
+	fmt.Printf("    [OK] Selected region: %dx%d pixels at (%d,%d)\n\n", rect.Dx(), rect.Dy(), rect.Min.X, rect.Min.Y)
 	return rect, nil
 }

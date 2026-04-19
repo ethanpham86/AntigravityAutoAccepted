@@ -132,8 +132,8 @@ func main() {
 		logger.Info("[REGION] Using fixed scan region from config: %v", region)
 	} else {
 		// Interactive selector
-		logger.Info("\n[1] Màn hình sẽ mờ đi. Hãy KÉO CHUỘT KHOANH VÙNG khu vực hay xuất hiện button.")
-		logger.Info("[2] Nhấn Ctrl+C bất cứ lúc nào để thoát.\n")
+		logger.Info("\n[1] Screen will dim. DRAG MOUSE to select the scan region.")
+		logger.Info("[2] Press Ctrl+C to exit at any time.\n")
 
 		region, err = selector.SelectRegion()
 		if err != nil {

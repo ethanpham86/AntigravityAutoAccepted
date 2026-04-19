@@ -345,7 +345,7 @@ func (e *Engine) scanAndClick() {
 
 		if err := clicker.ClickAt(absX, absY, e.config.UseBackgroundClick); err != nil {
 			e.stats.TotalErrors++
-			logger.Error("[SCAN #%d] ✗ Click failed: %v", e.stats.TotalScans, err)
+			logger.Error("[SCAN #%d] Click failed: %v", e.stats.TotalScans, err)
 			continue
 		}
 

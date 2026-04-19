@@ -63,7 +63,7 @@ func ClickAt(x, y int, background bool) error {
 		if err == nil {
 			return nil
 		}
-		fmt.Printf("⚠ BackgroundClick failed (%v) - Falling back to physical click!\n", err)
+		fmt.Printf("[WARN] BackgroundClick failed (%v) - Falling back to physical click!\n", err)
 		// If background click fails, fallback to physical click
 	}
 	return physicalClickAt(x, y)
